@@ -1,6 +1,6 @@
-# DePIN Device Registration IoTeX ioConnect SDK and NovaNet zkEngine
+# DePIN Device Registration Using IoTeX ioConnect SDK and NovaNet ZKPs
 
-This project demonstrates DePIN device registration using a secure client-server system built with Rust, It leverages IoTeX's ioConnect SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
+This project demonstrates DePIN device registration using a secure client-server system built with Rust. It leverages IoTeX's ioConnect SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
 The client collects GPS coordinates, timestamps, and signs them using cryptographic keys. The data is then transmitted with a zero-knowledge proof to the server for trustless verification.
 
 ## Overview
@@ -16,7 +16,7 @@ This system ensures:
 
 ## Client Side:
 
-First, the client generates a DIDDoc using it's secret key, and sends it to the server to registrate.
+First, the client generates a DIDDoc using it's secret key, and sends it to the server to register.
 
 The client can then send its position with a timestamp with the following workflow:
 
