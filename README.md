@@ -47,6 +47,12 @@ Then on receiving clients position, the server processes the following steps:
 
 # Get started
 
+First install submmodules
+
+```
+git submodule update --init --recursive
+```
+
 ## Setting up client
 
 Navigate to the `/client` directory:
