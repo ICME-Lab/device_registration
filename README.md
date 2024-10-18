@@ -1,6 +1,6 @@
-# Timestamping and Signing GPS Coordinates with ioConnect SDK and zkEngine Integration
+# DePIN Device Registration IoTeX ioConnect SDK and NovaNet zkEngine
 
-This project demonstrates a secure client-server system built with Rust, leveraging IoTeX's ioConnect SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
+This project demonstrates DePIN device registration using a secure client-server system built with Rust, It leverages IoTeX's ioConnect SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
 The client collects GPS coordinates, timestamps, and signs them using cryptographic keys. The data is then transmitted with a zero-knowledge proof to the server for trustless verification.
 
 ## Overview
@@ -9,14 +9,14 @@ This system ensures:
 
 - Data authenticity through ECDSA signatures managed with the ioConnect SDK.
 - Privacy-preserving data integrity and computational correctness using zk-SNARKs from NovaNet’s zkEngine.
-- Decentralized Identity Management via DIDs and DID Documents (DIDDocs) using the ioConnect SDK.
-- Secure transmission of GPS data and proofs over the network, with both client and server ensuring trust through cryptographic protocols.
+- Decentralized Identity Management for DePIN devices via DIDs and DID Documents (DIDDocs) using the ioConnect SDK.
+- Secure transmission of GPS data and zero knowedge proofs over the network, with both client and server ensuring trust through cryptographic protocols.
 
 # How it works
 
 ## Client Side:
 
-First of all, the client generates a DIDDoc using it's secret key, and sends it to the server to registrate.
+First, the client generates a DIDDoc using it's secret key, and sends it to the server to registrate.
 
 The client can then send its position with a timestamp with the following workflow:
 
