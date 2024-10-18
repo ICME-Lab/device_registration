@@ -3,7 +3,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use hex::ToHex;
 use serde::{Deserialize, Serialize};
 use sha2::{self, Digest};
 use std::collections::HashMap;
@@ -14,10 +13,9 @@ use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
 use zk_engine::nova::{
     provider::{ipa_pc, PallasEngine, VestaEngine},
     spartan::{ppsnark, snark},
-    traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
-    CompressedSNARK, PublicParams,
+    traits::Engine,
+    CompressedSNARK, PublicParams, VerifierKey,
 };
-use zk_engine::precompiles::signing::SigningCircuit;
 
 type E1 = PallasEngine;
 type E2 = VestaEngine;
@@ -117,24 +115,16 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         }
     };
 
-    // produce public parameters, used to produce vk, the verifier key (could only be done only once for a given circuit)
-    println!("Producing public parameters...");
-    type C1 = SigningCircuit<<E1 as Engine>::Scalar>;
-    type C2 = TrivialCircuit<<E2 as Engine>::Scalar>;
-    let circuit_primary = C1::new([1; 32].to_vec(), [1; 32].to_vec());
-    let circuit_secondary = C2::default();
-    let pp = PublicParams::<E1>::setup(
-        &circuit_primary,
-        &circuit_secondary,
-        &*S1::ck_floor(),
-        &*S2::ck_floor(),
-    )
-    .unwrap();
-    let (_, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
+    /*
+    RECOVER VERIFIER KEY
+     */
+
+    let vk = get_vk();
 
     /*
      * VERIFY PROOF
      */
+
     let z0_primary = [<E1 as Engine>::Scalar::ZERO; 4];
     let z0_secondary = [<E2 as Engine>::Scalar::ZERO];
 
@@ -143,7 +133,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     let res2 = snark.verify(&vk, 1, &z0_primary, &z0_secondary).unwrap();
 
     /*
-     * RECOVERING SIGNATURE
+     * RECOVER SIGNATURE
      */
 
     let (signature, _) = res2;
@@ -154,20 +144,21 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     }
 
     /*
-     * VERIFYING SIGNATURE
+     * VERIFY SIGNATURE
      */
 
     let hash = hash_position(&body.data);
     let public_key = deser_pubkey(&pubkey_bytes);
 
     let is_valid = verify_signature(&public_key, &signature_bytes, &hash);
-    println!("Signature is valid: {:?}", is_valid);
 
     if is_valid {
+        println!("Proof and signature succesfully verified");
         Json(SendDataResult {
             message: "Data received and signature verified".to_string(),
         })
     } else {
+        println!("Proof and signature verification failed");
         Json(SendDataResult {
             message: "Data received but signature verification failed".to_string(),
         })
@@ -175,19 +166,19 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 }
 
 fn load_hashmap() -> HashMap<String, String> {
-    if !std::path::Path::new("did_mapping/device_map.json").exists() {
+    if !std::path::Path::new("storage/device_map.json").exists() {
         return HashMap::new();
     }
-    let hashmap_str = std::fs::read_to_string("did_mapping/device_map.json").unwrap();
+    let hashmap_str = std::fs::read_to_string("storage/device_map.json").unwrap();
     serde_json::from_str(&hashmap_str).unwrap()
 }
 
 fn save_hashmap(hashmap: &HashMap<String, String>) {
-    if !std::path::Path::new("did_mapping").exists() {
-        std::fs::create_dir("did_mapping").unwrap();
+    if !std::path::Path::new("storage").exists() {
+        std::fs::create_dir("storage").unwrap();
     }
     let hashmap_str = serde_json::to_string(hashmap).unwrap();
-    std::fs::write("did_mapping/device_map.json", hashmap_str).unwrap();
+    std::fs::write("storage/device_map.json", hashmap_str).unwrap();
 }
 
 fn update_hashmap(did: &str, public_key: &[u8; 65]) {
@@ -227,4 +218,13 @@ fn verify_signature(public_key: &PublicKey, sig: &[u8], hash: &[u8]) -> bool {
 
 fn deser_pubkey(pubkey_bytes: &[u8; 65]) -> PublicKey {
     PublicKey::from_slice(pubkey_bytes).expect("65 bytes")
+}
+
+fn get_vk() -> VerifierKey<E1, S1, S2> {
+    let pp_str = std::fs::read_to_string("storage/public_params.json").unwrap_or_else(|_| {
+        panic!("Could not read public parameters file");
+    });
+    let pp: PublicParams<E1> = serde_json::from_str(&pp_str).unwrap();
+    let (_, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
+    vk
 }

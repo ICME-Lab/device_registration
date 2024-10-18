@@ -5,4 +5,4 @@ client/device_register/peerDIDDoc.json
 server/target/
 server/add_client/libraries/core/
 server/add_client/build/
-server/did_mapping
+server/storage

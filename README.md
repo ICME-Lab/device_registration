@@ -99,11 +99,19 @@ This will create a `./add_client` executable which will be used later by the ser
 
 Now that the setup is done, we will walk through running the example
 
-# Starting demo
+# Using demo
 
 ## Starting the server
 
 From `server` directory:
+
+First build the public params corresponding to the circuit that we want to verify correct execution:
+
+```
+cargo +nightly run --bin build_pp
+```
+
+Once the public params have been built, we can run the server:
 
 ```
 cargo +nightly run
