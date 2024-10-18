@@ -1,6 +1,8 @@
-use hex::{FromHex, ToHex};
+use anyhow::Result;
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::fs;
 use std::time::SystemTime;
 
 use ff::Field;
@@ -11,7 +13,6 @@ use zk_engine::nova::{
     CompressedSNARK, PublicParams, RecursiveSNARK,
 };
 
-use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
 use sha2::{self, Digest};
 use zk_engine::precompiles::signing::SigningCircuit;
 
@@ -29,13 +30,24 @@ type EE2 = ipa_pc::EvaluationEngine<E2>;
 type S1 = ppsnark::RelaxedR1CSSNARK<E1, EE1>;
 type S2 = snark::RelaxedR1CSSNARK<E2, EE2>;
 
-fn main() {
-    // Simulate inputs
-    let secret_key_hex = b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    let secret_key = hex::decode(secret_key_hex).unwrap();
+#[derive(Serialize)]
+struct SendDataBody {
+    data: Position,
+    snark: CompressedSNARK<E1, S1, S2>,
+    did: String,
+}
 
-    let public_key_hex = "034646ae5047316b4230d0086c8acec687f00b1cd9d1dc634f6cb358ac0a9a8fff";
-    let public_key = deser_pubkey(public_key_hex);
+#[derive(Deserialize)]
+struct SendDataResult {
+    message: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenv().ok();
+    // Simulate inputs
+    let secret_key_hex = std::env::var("SECRET_KEY_HEX").expect("SECRET_KEY must be set");
+    let secret_key = hex::decode(secret_key_hex).unwrap();
 
     let latitude = 48.8566;
     let longitude = 2.3522;
@@ -108,31 +120,39 @@ fn main() {
      * COMPRESS PROOF
      */
     println!("Compressing...");
-    let (pk, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
+    let (pk, _) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
     let snark = CompressedSNARK::prove(&pp, &pk, &recursive_snark).unwrap();
 
-    snark
-        .verify(&vk, recursive_snark.num_steps(), &z0_primary, &z0_secondary)
-        .unwrap();
-
     /*
-     * RECOVERING SIGNATURE
+     * SENDING TO SERVER
      */
 
-    let (signature, _) = res.unwrap();
-    let mut signature_bytes: [u8; 64] = [0; 64];
-    for (i, signature_part) in signature.into_iter().enumerate() {
-        let part: [u8; 32] = signature_part.into();
-        signature_bytes[i * 16..(i + 1) * 16].copy_from_slice(&part[0..16]);
-    }
-    println!("Signature : {:?}", signature_bytes.encode_hex::<String>());
+    println!("Sending data to server...");
 
-    /*
-     * VERIFYING SIGNATURE
-     */
+    let client = reqwest::Client::new();
 
-    let is_valid = verify_signature(&public_key, &signature_bytes, &hash);
-    println!("Signature is valid: {:?}", is_valid);
+    let diddoc_str = fs::read_to_string("./device_register/peerDIDDoc.json").expect("file read");
+
+    let diddoc_json: serde_json::Value = serde_json::from_str(&diddoc_str).expect("JSON parse");
+
+    let did = diddoc_json["id"].as_str().expect("DID string").to_string();
+
+    let body = SendDataBody {
+        data: position,
+        snark,
+        did,
+    };
+    let url = "http://127.0.0.1:3000/send_data";
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_string(&body).expect("JSON serialization"))
+        .send()
+        .await?;
+
+    let result: SendDataResult = response.json().await?;
+    println!("Result: {}", result.message);
+    Ok(())
 }
 
 fn hash_position(position: &Position) -> Vec<u8> {
@@ -145,15 +165,4 @@ fn hash_message(message: &str) -> Box<[u8]> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(message.as_bytes());
     hasher.finalize().as_slice().into()
-}
-
-fn verify_signature(public_key: &PublicKey, sig: &[u8], hash: &[u8]) -> bool {
-    let secp = Secp256k1::new();
-    let message = Message::from_digest_slice(&hash).expect("32 bytes");
-    let signature = Signature::from_compact(sig).expect("64 bytes");
-    secp.verify_ecdsa(&message, &signature, &public_key).is_ok()
-}
-
-fn deser_pubkey(pubkey_str: &str) -> PublicKey {
-    PublicKey::from_slice(<[u8; 33]>::from_hex(&pubkey_str).unwrap().as_ref()).expect("33 bytes")
 }

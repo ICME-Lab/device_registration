@@ -1,6 +1,6 @@
-[submodule "device_register/ioConnect"]
-	path = device_register/ioConnect
+[submodule "client/device_register/ioConnect"]
+	path = client/device_register/ioConnect
 	url = https://github.com/iotexproject/ioConnect.git
-[submodule "device_register/src/libraries/dotenv-c"]
-	path = device_register/src/libraries/dotenv-c
+[submodule "client/device_register/src/libraries/dotenv-c"]
+	path = client/device_register/src/libraries/dotenv-c
 	url = https://github.com/Isty001/dotenv-c.git
