@@ -113,7 +113,7 @@ The server will start listening on `127.0.0.1:3000`
 
 ## Running the client's functions
 
-From `client` directory:
+From `client` directory, on another terminal:
 
 First we need to register the device to the server:
 

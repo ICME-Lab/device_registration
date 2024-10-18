@@ -1,6 +1,5 @@
 use anyhow::Result;
 use dotenv::dotenv;
-use hex::ToHex;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs;
@@ -14,7 +13,6 @@ use zk_engine::nova::{
     CompressedSNARK, PublicParams, RecursiveSNARK,
 };
 
-use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{self, Digest};
 use zk_engine::precompiles::signing::SigningCircuit;
 
@@ -50,13 +48,6 @@ async fn main() -> Result<()> {
     // Simulate inputs
     let secret_key_hex = std::env::var("SECRET_KEY_HEX").expect("SECRET_KEY must be set");
     let secret_key = hex::decode(secret_key_hex).unwrap();
-
-    // Generated from the secret_key
-    let secp = Secp256k1::new();
-    let public_key = SecretKey::from_byte_array(&secret_key.clone().try_into().unwrap())
-        .unwrap()
-        .public_key(&secp);
-    println!("Public key: {:?}", public_key.serialize_uncompressed());
 
     let latitude = 48.8566;
     let longitude = 2.3522;
@@ -129,45 +120,22 @@ async fn main() -> Result<()> {
      * COMPRESS PROOF
      */
     println!("Compressing...");
-    let (pk, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
+    let (pk, _) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
     let snark = CompressedSNARK::prove(&pp, &pk, &recursive_snark).unwrap();
-
-    let res2 = snark
-        .verify(&vk, recursive_snark.num_steps(), &z0_primary, &z0_secondary)
-        .unwrap();
-
-    /*
-     * RECOVERING SIGNATURE
-     */
-
-    let (signature, _) = res2;
-    let mut signature_bytes: [u8; 64] = [0; 64];
-    for (i, signature_part) in signature.into_iter().enumerate() {
-        let part: [u8; 32] = signature_part.into();
-        signature_bytes[i * 16..(i + 1) * 16].copy_from_slice(&part[0..16]);
-    }
-    println!("Signature : {:?}", signature_bytes.encode_hex::<String>());
-
-    /*
-     * VERIFYING SIGNATURE
-     */
-
-    let is_valid = verify_signature(&public_key, &signature_bytes, &hash);
-    println!("Signature is valid: {:?}", is_valid);
 
     /*
      * SENDING TO SERVER
      */
 
+    println!("Sending data to server...");
+
     let client = reqwest::Client::new();
 
     let diddoc_str = fs::read_to_string("./device_register/peerDIDDoc.json").expect("file read");
-    println!("DIDDoc: {}", diddoc_str);
 
     let diddoc_json: serde_json::Value = serde_json::from_str(&diddoc_str).expect("JSON parse");
 
     let did = diddoc_json["id"].as_str().expect("DID string").to_string();
-    println!("DID: {}", did);
 
     let body = SendDataBody {
         data: position,
@@ -197,11 +165,4 @@ fn hash_message(message: &str) -> Box<[u8]> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(message.as_bytes());
     hasher.finalize().as_slice().into()
-}
-
-fn verify_signature(public_key: &PublicKey, sig: &[u8], hash: &[u8]) -> bool {
-    let secp = Secp256k1::new();
-    let message = Message::from_digest_slice(&hash).expect("32 bytes");
-    let signature = Signature::from_compact(sig).expect("64 bytes");
-    secp.verify_ecdsa(&message, &signature, &public_key).is_ok()
 }

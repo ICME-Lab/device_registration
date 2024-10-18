@@ -90,8 +90,6 @@ async fn register_device(
         .expect("failed to execute process")
         .stdout;
 
-    println!("Result: {:?}", result);
-
     let public_key: [u8; 64] = result.try_into().unwrap();
 
     let mut public_key_with_prefix = [0; 65];
@@ -119,7 +117,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         }
     };
 
-    // produce public parameters, used to produce vk, the verifier key (can be done only once for a given circuit)
+    // produce public parameters, used to produce vk, the verifier key (could only be done only once for a given circuit)
     println!("Producing public parameters...");
     type C1 = SigningCircuit<<E1 as Engine>::Scalar>;
     type C2 = TrivialCircuit<<E2 as Engine>::Scalar>;
@@ -154,7 +152,6 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         let part: [u8; 32] = signature_part.into();
         signature_bytes[i * 16..(i + 1) * 16].copy_from_slice(&part[0..16]);
     }
-    println!("Signature : {:?}", signature_bytes.encode_hex::<String>());
 
     /*
      * VERIFYING SIGNATURE
@@ -165,9 +162,16 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     let is_valid = verify_signature(&public_key, &signature_bytes, &hash);
     println!("Signature is valid: {:?}", is_valid);
-    Json(SendDataResult {
-        message: "Data received".to_string(),
-    })
+
+    if is_valid {
+        Json(SendDataResult {
+            message: "Data received and signature verified".to_string(),
+        })
+    } else {
+        Json(SendDataResult {
+            message: "Data received but signature verification failed".to_string(),
+        })
+    }
 }
 
 fn load_hashmap() -> HashMap<String, String> {
