@@ -8,21 +8,11 @@ use sha2::{self, Digest};
 use std::collections::HashMap;
 use std::process::Command;
 
-use ff::Field;
 use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
-use zk_engine::nova::{
-    provider::{ipa_pc, PallasEngine, VestaEngine},
-    spartan::{ppsnark, snark},
-    traits::Engine,
-    CompressedSNARK, PublicParams, VerifierKey,
-};
+use zk_engine::precompiles::signing::{CircuitTypes, SigningCircuit};
 
-type E1 = PallasEngine;
-type E2 = VestaEngine;
-type EE1 = ipa_pc::EvaluationEngine<E1>;
-type EE2 = ipa_pc::EvaluationEngine<E2>;
-type S1 = ppsnark::RelaxedR1CSSNARK<E1, EE1>;
-type S2 = snark::RelaxedR1CSSNARK<E2, EE2>;
+type CompressedProof = <SigningCircuit as CircuitTypes>::CompressedProof;
+type PublicParams = <SigningCircuit as CircuitTypes>::PublicParams;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
@@ -34,7 +24,7 @@ struct Position {
 #[derive(Deserialize)]
 struct SendDataBody {
     data: Position,
-    snark: CompressedSNARK<E1, S1, S2>,
+    snark: CompressedProof,
     did: String,
 }
 
@@ -75,7 +65,7 @@ async fn root() -> String {
 async fn register_device(
     Json(register_device_body): Json<RegisterDeviceBody>,
 ) -> (StatusCode, Json<RegisterResult>) {
-    println!("DIDDoc: {}", register_device_body.diddoc);
+    println!("Received DIDDoc: {}", register_device_body.diddoc);
 
     let diddoc_json: serde_json::Value =
         serde_json::from_str(&register_device_body.diddoc).expect("Failed to parse DIDDoc");
@@ -95,6 +85,8 @@ async fn register_device(
     public_key_with_prefix[1..].copy_from_slice(&public_key);
 
     update_hashmap(did, &public_key_with_prefix);
+
+    println!("New device registered");
 
     let result = RegisterResult {
         message: "Device registered".to_string(),
@@ -119,24 +111,21 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-    let vk = get_vk();
+    let pp = get_public_params();
 
     /*
      * VERIFY PROOF
      */
 
-    let z0_primary = [<E1 as Engine>::Scalar::ZERO; 4];
-    let z0_secondary = [<E2 as Engine>::Scalar::ZERO];
-
     println!("Verifying ...");
-    let snark = body.snark;
-    let res2 = snark.verify(&vk, 1, &z0_primary, &z0_secondary).unwrap();
+    let compressed_proof = body.snark;
+    let res2 = SigningCircuit::verify_compressed(&pp, &compressed_proof);
 
     /*
      * RECOVER SIGNATURE
      */
 
-    let (signature, _) = res2;
+    let signature = res2.unwrap();
     let mut signature_bytes: [u8; 64] = [0; 64];
     for (i, signature_part) in signature.into_iter().enumerate() {
         let part: [u8; 32] = signature_part.into();
@@ -220,11 +209,10 @@ fn deser_pubkey(pubkey_bytes: &[u8; 65]) -> PublicKey {
     PublicKey::from_slice(pubkey_bytes).expect("65 bytes")
 }
 
-fn get_vk() -> VerifierKey<E1, S1, S2> {
+fn get_public_params() -> PublicParams {
     let pp_str = std::fs::read_to_string("storage/public_params.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: PublicParams<E1> = serde_json::from_str(&pp_str).unwrap();
-    let (_, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
-    vk
+    let pp: PublicParams = serde_json::from_str(&pp_str).unwrap();
+    pp
 }

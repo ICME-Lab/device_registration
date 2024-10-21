@@ -13,6 +13,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.128"
 sha2 = "0.10.8"
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
-zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "signing-circuit" }
+zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "signing-circuit-test" }
 anyhow = "1.0.89"
 dotenv = "0.15.0"
