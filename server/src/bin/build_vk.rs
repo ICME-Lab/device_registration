@@ -1,6 +1,8 @@
-use nova_snark::traits::{circuit::TrivialTestCircuit, Group};
-use nova_snark::{provider, spartan};
-use nova_snark::{CompressedSNARK, PublicParams};
+use nova_snark::{
+    provider, spartan,
+    traits::{circuit::TrivialTestCircuit, Group},
+    CompressedSNARK, PublicParams,
+};
 use radius_circuit::circuit::ProximityCircuit;
 
 type G1 = pasta_curves::pallas::Point;

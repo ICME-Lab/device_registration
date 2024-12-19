@@ -1,21 +1,22 @@
 use axum::{
-    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{self, Digest};
 
 use ff::Field;
-use nova_snark::CompressedSNARK;
-use nova_snark::{provider, spartan};
 use nova_snark::{
+    provider, spartan,
     traits::{circuit::TrivialTestCircuit, Group},
-    VerifierKey,
+    CompressedSNARK, VerifierKey,
 };
 use radius_circuit::circuit::ProximityCircuit;
 
-use secp256k1::{ecdsa::RecoverableSignature, Message, Secp256k1};
+use web3::{
+    api::Namespace,
+    types::H160,
+    types::{Recovery, RecoveryMessage, H256},
+};
 
 type G1 = pasta_curves::pallas::Point;
 type G2 = pasta_curves::vesta::Point;
@@ -42,7 +43,15 @@ struct SendDataBody {
         S1Prime<G1>,
         S2Prime<G2>,
     >,
-    signature: String,
+    signed_data: SignedData,
+}
+
+#[derive(Deserialize)]
+struct SignedData {
+    hash: [u8; 32],
+    v: String,
+    r: String,
+    s: String,
 }
 
 #[derive(Serialize)]
@@ -73,26 +82,12 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     println!("Received data");
 
     // recover signer's public key
-    let signature_str = body.signature;
-    let signature_slice: [u8; 65] = hex::decode(signature_str).unwrap().try_into().unwrap();
-    let recovery_id = RecoverableSignature::from_compact(
-        &signature_slice[1..],
-        (signature_slice[0] as i32).try_into().unwrap(),
-    )
-    .unwrap();
-
-    let proof_serialized = serde_json::to_string(&body.snark).expect("JSON serialization");
-    let hash = sha2::Sha256::digest(proof_serialized.as_bytes());
-
-    let secp = Secp256k1::new();
-    let _public_key = secp
-        .recover_ecdsa(
-            &Message::from_digest(hash.try_into().unwrap()),
-            &recovery_id,
-        )
-        .unwrap();
+    let signed_data = body.signed_data;
+    let public_key = recover_address(signed_data);
+    println!("Recovered device's public key: {:?}", public_key);
 
     // Make sure device is registered on a project by checking ioid contract
+    // TODO
 
     /*
     RECOVER VERIFIER KEY
@@ -104,7 +99,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
      * VERIFY PROOF
      */
 
-    println!("Verifying ...");
+    println!("Verifying proof...");
 
     let compressed_snark = body.snark;
     // verify the compressed SNARK
@@ -116,11 +111,13 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     );
 
     if res.is_err() {
+        println!("Proof verification failed");
         return Json(SendDataResult {
             message: "Proof verification failed".to_string(),
         });
     }
 
+    println!("Proof verified");
     return Json(SendDataResult {
         message: "Proof verified".to_string(),
     });
@@ -146,4 +143,24 @@ fn get_vk() -> VerifierKey<
         S2Prime<G2>,
     > = serde_json::from_str(&pp_str).unwrap();
     pp
+}
+
+fn recover_address(signed_data: SignedData) -> H160 {
+    let hash = signed_data.hash;
+    let message = RecoveryMessage::Hash(H256::from_slice(&hash));
+    let v: u64 = u64::from_str_radix(&signed_data.v[2..], 16).unwrap();
+    let r: H256 = H256::from_slice(&hex::decode(&signed_data.r[2..]).unwrap());
+    let s: H256 = H256::from_slice(&hex::decode(&signed_data.s[2..]).unwrap());
+
+    let recovery: Recovery = Recovery {
+        message: message,
+        v: v,
+        r: r,
+        s: s,
+    };
+
+    let websocket = web3::transports::Http::new("https://babel-api.testnet.iotex.io").unwrap();
+    let account = web3::api::Accounts::new(websocket);
+    let address = account.recover(recovery).unwrap();
+    address
 }

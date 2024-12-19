@@ -1,8 +1,4 @@
 client/target/
-client/device_register/src/libraries/core/
-client/device_register/src/build/
-client/device_register/peerDIDDoc.json
 server/target/
-server/add_client/libraries/core/
-server/add_client/build/
 server/storage
+.vscode/

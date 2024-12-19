@@ -1,1 +1,0 @@
-/usr/bin/cc -g CMakeFiles/add_client.dir/src/main.c.o -o add_client  -Wl,-rpath,/home/antoine/Documents/projets/Novanet/exampleIoTeX/signDataRust/build/libraries/core libraries/core/libioConnectCore.so

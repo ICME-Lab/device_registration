@@ -1,16 +1,16 @@
 use anyhow::Result;
-use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
 use ff::Field;
-use nova_snark::traits::{circuit::TrivialTestCircuit, Group};
 use radius_circuit::circuit::ProximityCircuit;
-use secp256k1::{Message, Secp256k1, SecretKey};
 use sha2::{self, Digest};
 
-use nova_snark::{provider, spartan};
-use nova_snark::{CompressedSNARK, PublicParams, RecursiveSNARK};
+use nova_snark::{
+    provider, spartan,
+    traits::{circuit::TrivialTestCircuit, Group},
+    CompressedSNARK, PublicParams, RecursiveSNARK,
+};
 
 type G1 = pasta_curves::pallas::Point;
 type G2 = pasta_curves::vesta::Point;
@@ -20,6 +20,9 @@ type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
 
 type S1Prime<G1> = spartan::ppsnark::RelaxedR1CSSNARK<G1, EE1<G1>>;
 type S2Prime<G2> = spartan::ppsnark::RelaxedR1CSSNARK<G2, EE2<G2>>;
+
+pub mod utils;
+use utils::sign;
 
 #[derive(Serialize)]
 struct SendDataBody {
@@ -31,7 +34,15 @@ struct SendDataBody {
         S1Prime<G1>,
         S2Prime<G2>,
     >,
-    signature: String,
+    signed_data: SignedData,
+}
+
+#[derive(Serialize)]
+struct SignedData {
+    hash: [u8; 32],
+    v: String,
+    r: String,
+    s: String,
 }
 
 #[derive(Deserialize)]
@@ -39,12 +50,8 @@ struct SendDataResult {
     message: String,
 }
 
-const DEVICE_URL: &str = "http://127.0.0.1:8000";
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv().ok();
-
     let latitude = 4990;
     let longitude = 5010;
 
@@ -102,7 +109,7 @@ async fn main() -> Result<()> {
     assert!(res.is_ok());
 
     // produce the prover and verifier keys for compressed snark
-    let (pk, vk) = CompressedSNARK::<_, _, _, _, S1Prime<G1>, S2Prime<G2>>::setup(&pp).unwrap();
+    let (pk, _vk) = CompressedSNARK::<_, _, _, _, S1Prime<G1>, S2Prime<G2>>::setup(&pp).unwrap();
 
     // produce a compressed SNARK
     let res =
@@ -111,47 +118,43 @@ async fn main() -> Result<()> {
     let compressed_snark = res.unwrap();
 
     // verify the compressed SNARK
-    let res = compressed_snark.verify(
+    /* let res = compressed_snark.verify(
         &vk,
         num_steps,
         vec![<G1 as Group>::Scalar::ZERO],
         vec![<G2 as Group>::Scalar::ONE],
     );
-    assert!(res.is_ok());
+    assert!(res.is_ok()); */
 
     /*
-     * SENDING TO DEVICE TO SIGN
+     * SENDING PROOF TO DEVICE TO BE SIGNED
      */
 
-    println!("Sending data to device...");
-
+    // compute proof hash
     let proof_serialized = serde_json::to_string(&compressed_snark).expect("JSON serialization");
     let hash = sha2::Sha256::digest(proof_serialized.as_bytes());
     let hash: [u8; 32] = hash.into();
 
     // send proof_serialized to device ( DEVICE_URL ), receive signature
-    // currently simulating the signature
-    let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("32 bytes, within curve order");
-    let secp = Secp256k1::new();
-    let message = Message::from_digest(hash);
-    let signature = secp.sign_ecdsa_recoverable(&message, &secret_key);
-    let (rec_id, rec_sig) = signature.serialize_compact();
-    let mut signature_slice = [0u8; 65];
-    signature_slice[0] = rec_id as u8;
-    signature_slice[1..].copy_from_slice(&rec_sig);
-    let signature_str = hex::encode(signature_slice);
+    println!("Sending hash to device to be signed...");
+    let (v, r, s) = sign("0x".to_owned() + &hex::encode(hash));
+    println!("Signature: \nv: {}, \nr: {}, \ns: {}", v, r, s);
+
+    let signed_data = SignedData { hash, v, r, s };
 
     /*
      * SEND TO SERVER FOR VERIFICATION
      * The server will verify the proof, recover the signer's public key using the signature
-     * Then request the IOID contract to recover the device's owner, to send him the reward
+     *
+     * TODO: then request the ioID contract to recover the device's owner, to send him the reward
      */
 
     let body = SendDataBody {
         snark: compressed_snark,
-        signature: signature_str,
+        signed_data: signed_data,
     };
 
+    println!("Sending proof and signature to server...");
     let client = reqwest::Client::new();
     let url = "http://127.0.0.1:3000/send_data";
     let response = client
