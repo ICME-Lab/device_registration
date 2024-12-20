@@ -34,12 +34,11 @@ struct SendDataBody {
         S1Prime<G1>,
         S2Prime<G2>,
     >,
-    signed_data: SignedData,
+    signature: Signature,
 }
 
 #[derive(Serialize)]
-struct SignedData {
-    hash: [u8; 32],
+struct Signature {
     v: String,
     r: String,
     s: String,
@@ -117,15 +116,6 @@ async fn main() -> Result<()> {
     assert!(res.is_ok());
     let compressed_snark = res.unwrap();
 
-    // verify the compressed SNARK
-    /* let res = compressed_snark.verify(
-        &vk,
-        num_steps,
-        vec![<G1 as Group>::Scalar::ZERO],
-        vec![<G2 as Group>::Scalar::ONE],
-    );
-    assert!(res.is_ok()); */
-
     /*
      * SENDING PROOF TO DEVICE TO BE SIGNED
      */
@@ -140,7 +130,7 @@ async fn main() -> Result<()> {
     let (v, r, s) = sign("0x".to_owned() + &hex::encode(hash));
     println!("Signature: \nv: {}, \nr: {}, \ns: {}", v, r, s);
 
-    let signed_data = SignedData { hash, v, r, s };
+    let signature = Signature { v, r, s };
 
     /*
      * SEND TO SERVER FOR VERIFICATION
@@ -151,7 +141,7 @@ async fn main() -> Result<()> {
 
     let body = SendDataBody {
         snark: compressed_snark,
-        signed_data: signed_data,
+        signature: signature,
     };
 
     println!("Sending proof and signature to server...");

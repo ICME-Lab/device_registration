@@ -13,16 +13,16 @@ This system ensures:
 
 # Prerequisites
 
-We will simulate a device and make it run the ioID SDK:
+We will simulate a device on our linux machine, and make it run the ioID SDK:
 
 ```
 git clone https://github.com/iotexproject/ioID-SDK
 ```
 
-Then follow [this tutorial](https://github.com/iotexproject/ioID-SDK/tree/main/example/linux/deviceregister/doc) to allow the device to use ioID capabilities.
+Then allow the device to use ioID capabilities, by following [this tutorial](https://github.com/iotexproject/ioID-SDK/tree/main/example/linux/deviceregister/doc).
 The device (our linux machine) should be listening at port `8000`
 
-Follow [this tutorial](https://docs.iotex.io/builders/depin/ioid-step-by-step-tutorial) to set-up the device and register it to a project on the IoTeX chain.
+To create a project on the IoTeX chain, and allow a device to be registered to it, follow [this tutorial](https://docs.iotex.io/builders/depin/ioid-step-by-step-tutorial).
 
 Once this is done, go to the ioID registration tool:
 
@@ -65,6 +65,8 @@ Then on receiving clients proofs, the server processes the following steps:
     - `main.rs` where the executable to run the server is located
 
 # Get started
+
+Make sure the device is still listening on `http://127.0.0.1:8000`
 
 ## Starting the server
 

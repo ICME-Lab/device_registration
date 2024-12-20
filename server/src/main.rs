@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use axum::{
     routing::{get, post},
     Json, Router,
 };
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 
 use ff::Field;
@@ -12,10 +15,11 @@ use nova_snark::{
 };
 use radius_circuit::circuit::ProximityCircuit;
 
+use sha2::Digest;
 use web3::{
     api::Namespace,
-    types::H160,
-    types::{Recovery, RecoveryMessage, H256},
+    signing::SecretKey,
+    types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
 type G1 = pasta_curves::pallas::Point;
@@ -43,12 +47,11 @@ struct SendDataBody {
         S1Prime<G1>,
         S2Prime<G2>,
     >,
-    signed_data: SignedData,
+    signature: Signature,
 }
 
 #[derive(Deserialize)]
-struct SignedData {
-    hash: [u8; 32],
+struct Signature {
     v: String,
     r: String,
     s: String,
@@ -61,6 +64,7 @@ struct SendDataResult {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     let app = Router::new()
         .route("/", get(root))
         .route("/send_data", post(receive_data));
@@ -81,9 +85,16 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     let num_steps = 1;
     println!("Received data");
 
+    let compressed_snark = body.snark;
+    let signature = body.signature;
+
+    // recover proof hash
+    let proof_serialized = serde_json::to_string(&compressed_snark).expect("JSON serialization");
+    let hash = sha2::Sha256::digest(proof_serialized.as_bytes());
+    let hash: [u8; 32] = hash.into();
+
     // recover signer's public key
-    let signed_data = body.signed_data;
-    let public_key = recover_address(signed_data);
+    let public_key = recover_address(&hash, signature);
     println!("Recovered device's public key: {:?}", public_key);
 
     // Make sure device is registered on a project by checking ioid contract
@@ -101,7 +112,6 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     println!("Verifying proof...");
 
-    let compressed_snark = body.snark;
     // verify the compressed SNARK
     let res = compressed_snark.verify(
         &vk,
@@ -117,9 +127,46 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         });
     }
 
-    println!("Proof verified");
+    /*
+     * TODO: Recover owner's public address from device's
+     * For now simulated
+     */
+
+    let owner_address = Address::from_str("1CfD83190a2F95DA46F2b3F345aeBC37E6DF04C6").unwrap();
+    println!("Owner's public address: {:?}", owner_address);
+
+    let spender_pk =
+        SecretKey::from_str(std::env::var("SPENDER_PRIVATE_KEY").unwrap().as_str()).unwrap();
+
+    let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
+        panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
+    });
+    let rpc = web3::transports::Http::new(&rpc_url).unwrap();
+    let web3 = web3::Web3::new(rpc);
+
+    let tx_object = TransactionParameters {
+        to: Some(owner_address),
+        value: U256::exp10(17),
+        ..Default::default()
+    };
+
+    let signed_tx = web3
+        .accounts()
+        .sign_transaction(tx_object, &spender_pk)
+        .await
+        .unwrap();
+
+    let result = web3
+        .eth()
+        .send_raw_transaction(signed_tx.raw_transaction)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Failed to send transaction: {:?}", e);
+        });
+
+    println!("Proof verified. Transaction hash: {:?}", result);
     return Json(SendDataResult {
-        message: "Proof verified".to_string(),
+        message: format!("Proof verified. Transaction hash: {:?}", result),
     });
 }
 
@@ -145,12 +192,11 @@ fn get_vk() -> VerifierKey<
     pp
 }
 
-fn recover_address(signed_data: SignedData) -> H160 {
-    let hash = signed_data.hash;
-    let message = RecoveryMessage::Hash(H256::from_slice(&hash));
-    let v: u64 = u64::from_str_radix(&signed_data.v[2..], 16).unwrap();
-    let r: H256 = H256::from_slice(&hex::decode(&signed_data.r[2..]).unwrap());
-    let s: H256 = H256::from_slice(&hex::decode(&signed_data.s[2..]).unwrap());
+fn recover_address(message: &[u8; 32], signature: Signature) -> H160 {
+    let message = RecoveryMessage::Hash(H256::from_slice(message));
+    let v: u64 = u64::from_str_radix(&signature.v[2..], 16).unwrap();
+    let r: H256 = H256::from_slice(&hex::decode(&signature.r[2..]).unwrap());
+    let s: H256 = H256::from_slice(&hex::decode(&signature.s[2..]).unwrap());
 
     let recovery: Recovery = Recovery {
         message: message,
@@ -159,8 +205,8 @@ fn recover_address(signed_data: SignedData) -> H160 {
         s: s,
     };
 
-    let websocket = web3::transports::Http::new("https://babel-api.testnet.iotex.io").unwrap();
-    let account = web3::api::Accounts::new(websocket);
+    let rpc = web3::transports::Http::new("https://babel-api.testnet.iotex.io").unwrap();
+    let account = web3::api::Accounts::new(rpc);
     let address = account.recover(recovery).unwrap();
     address
 }

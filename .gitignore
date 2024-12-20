@@ -1,4 +1,5 @@
+.vscode/
 client/target/
 server/target/
 server/storage
-.vscode/
+server/.env
