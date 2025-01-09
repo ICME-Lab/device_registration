@@ -18,6 +18,7 @@ use radius_circuit::circuit::ProximityCircuit;
 use sha2::Digest;
 use web3::{
     api::Namespace,
+    contract::{Contract, Options},
     signing::SecretKey,
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
@@ -128,12 +129,12 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     }
 
     /*
-     * TODO: Recover owner's public address from device's
-     * For now simulated
+     * Recover owner's public address from device's
+     *
+     * First recover device's ioID NFT token id from ioIDRegistry contract
+     * the ioID NFT is minted to the device's owner when registering the device
+     * Then recover the owner's address from the ioID contract, querying the NFT owner
      */
-
-    let owner_address = Address::from_str("1CfD83190a2F95DA46F2b3F345aeBC37E6DF04C6").unwrap();
-    println!("Owner's public address: {:?}", owner_address);
 
     let spender_pk =
         SecretKey::from_str(std::env::var("SPENDER_PRIVATE_KEY").unwrap().as_str()).unwrap();
@@ -141,8 +142,43 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
         panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
     });
-    let rpc = web3::transports::Http::new(&rpc_url).unwrap();
-    let web3 = web3::Web3::new(rpc);
+    let transport = web3::transports::Http::new(&rpc_url).unwrap();
+    let web3 = web3::Web3::new(transport);
+
+    let ioid_registry_contract = Contract::from_json(
+        web3.eth(),
+        H160::from_str("0x0A7e595C7889dF3652A19aF52C18377bF17e027D").unwrap(),
+        include_bytes!("../contract-abi/ioIDRegistry-ABI.json"),
+    )
+    .unwrap();
+
+    let device_id: U256 = match ioid_registry_contract
+        .query("deviceTokenId", public_key, None, Options::default(), None)
+        .await
+    {
+        Ok(device_id) => device_id,
+        Err(e) => panic!(
+            "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
+            e
+        ),
+    };
+
+    let ioid_contract = Contract::from_json(
+        web3.eth(),
+        H160::from_str("0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7").unwrap(),
+        include_bytes!("../contract-abi/ioID-ABI.json"),
+    )
+    .unwrap();
+
+    let owner_address: Address = ioid_contract
+        .query("ownerOf", device_id, None, Options::default(), None)
+        .await
+        .unwrap();
+
+    println!("Proof verified. Sending reward to {:?}", owner_address);
+    /*
+     * Send reward to device's owner
+     */
 
     let tx_object = TransactionParameters {
         to: Some(owner_address),
@@ -166,7 +202,10 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     println!("Proof verified. Transaction hash: {:?}", result);
     return Json(SendDataResult {
-        message: format!("Proof verified. Transaction hash: {:?}", result),
+        message: format!(
+            "Proof verified.\nReward sent to {:?}\nTransaction hash: {:?}",
+            owner_address, result
+        ),
     });
 }
 

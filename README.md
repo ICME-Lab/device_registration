@@ -50,10 +50,10 @@ At the beginning of the service, the server creates the verifier key that will a
 Then on receiving clients proofs, the server processes the following steps:
 
 - It recovers the signers public address (i.e. device's public address).
-- It verifies that the device is registered by requesting the ioid contract (TBD).
+- It verifies that the device is registered by requesting the ioid contract.
 - It then verifies that the proof is valid and corresponds to a correct execution of the circuit.
 - If verification succeeds, the server sends a success response. Otherwise, it returns an error.
-- The server also retrieves the device owner's address to send a reward (TBD)
+- The server also retrieves the device owner's address to send a reward.
 
 # Project structure
 
