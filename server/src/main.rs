@@ -8,12 +8,12 @@ use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 
 use ff::Field;
-use nova_snark::{
-    provider, spartan,
-    traits::{circuit::TrivialTestCircuit, Group},
-    CompressedSNARK, VerifierKey,
+use nova::{
+    provider::{self, PallasEngine, VestaEngine},
+    spartan,
+    traits::{CurveCycleEquipped, Engine},
+    CompressedSNARK, PublicParams,
 };
-use radius_circuit::circuit::ProximityCircuit;
 
 use sha2::Digest;
 use web3::{
@@ -23,8 +23,8 @@ use web3::{
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
-type G1 = pasta_curves::pallas::Point;
-type G2 = pasta_curves::vesta::Point;
+type E1 = PallasEngine;
+type E2 = VestaEngine;
 
 type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
 type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
@@ -41,12 +41,9 @@ struct Position {
 #[derive(Deserialize)]
 struct SendDataBody {
     snark: CompressedSNARK<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-        S1Prime<G1>,
-        S2Prime<G2>,
+        provider::PallasEngine,
+        S1Prime<PallasEngine>,
+        S2Prime<<PallasEngine as CurveCycleEquipped>::Secondary>,
     >,
     signature: Signature,
 }
@@ -62,6 +59,10 @@ struct Signature {
 struct SendDataResult {
     message: String,
 }
+
+// Contracts deployment address on IOTEX testnet
+const IOID_REGISTRY_ADDRESS: &str = "0x0A7e595C7889dF3652A19aF52C18377bF17e027D";
+const IOID_CONTRACT_ADDRESS: &str = "0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7";
 
 #[tokio::main]
 async fn main() {
@@ -105,7 +106,10 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-    let vk = get_vk();
+    let pp = get_pp();
+    let (_pk, vk) =
+        CompressedSNARK::<PallasEngine, S1Prime<PallasEngine>, S2Prime<VestaEngine>>::setup(&pp)
+            .unwrap();
 
     /*
      * VERIFY PROOF
@@ -117,8 +121,8 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     let res = compressed_snark.verify(
         &vk,
         num_steps,
-        vec![<G1 as Group>::Scalar::ZERO],
-        vec![<G2 as Group>::Scalar::ONE],
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
     );
 
     if res.is_err() {
@@ -136,8 +140,12 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
      * Then recover the owner's address from the ioID contract, querying the NFT owner
      */
 
-    let spender_pk =
-        SecretKey::from_str(std::env::var("SPENDER_PRIVATE_KEY").unwrap().as_str()).unwrap();
+    let spender_pk = SecretKey::from_str(
+        std::env::var("SPENDER_PRIVATE_KEY")
+            .unwrap_or_else(|_| panic!("SPENDER_PRIVATE_KEY must be sent in .env"))
+            .as_str(),
+    )
+    .unwrap();
 
     let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
         panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
@@ -147,7 +155,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     let ioid_registry_contract = Contract::from_json(
         web3.eth(),
-        H160::from_str("0x0A7e595C7889dF3652A19aF52C18377bF17e027D").unwrap(),
+        H160::from_str(IOID_REGISTRY_ADDRESS).unwrap(),
         include_bytes!("../contract-abi/ioIDRegistry-ABI.json"),
     )
     .unwrap();
@@ -165,7 +173,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     let ioid_contract = Contract::from_json(
         web3.eth(),
-        H160::from_str("0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7").unwrap(),
+        H160::from_str(IOID_CONTRACT_ADDRESS).unwrap(),
         include_bytes!("../contract-abi/ioID-ABI.json"),
     )
     .unwrap();
@@ -209,25 +217,11 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     });
 }
 
-fn get_vk() -> VerifierKey<
-    G1,
-    G2,
-    ProximityCircuit<<G1 as Group>::Scalar>,
-    TrivialTestCircuit<<G2 as Group>::Scalar>,
-    S1Prime<G1>,
-    S2Prime<G2>,
-> {
-    let pp_str = std::fs::read_to_string("storage/vk.json").unwrap_or_else(|_| {
+fn get_pp() -> PublicParams<PallasEngine> {
+    let pp_str = std::fs::read_to_string("storage/pp.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: VerifierKey<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-        S1Prime<G1>,
-        S2Prime<G2>,
-    > = serde_json::from_str(&pp_str).unwrap();
+    let pp: PublicParams<PallasEngine> = serde_json::from_str(&pp_str).unwrap();
     pp
 }
 
@@ -244,7 +238,11 @@ fn recover_address(message: &[u8; 32], signature: Signature) -> H160 {
         s: s,
     };
 
-    let rpc = web3::transports::Http::new("https://babel-api.testnet.iotex.io").unwrap();
+    let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
+        panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
+    });
+
+    let rpc = web3::transports::Http::new(&rpc_url).unwrap();
     let account = web3::api::Accounts::new(rpc);
     let address = account.recover(recovery).unwrap();
     address

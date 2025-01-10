@@ -6,34 +6,28 @@ use ff::Field;
 use radius_circuit::circuit::ProximityCircuit;
 use sha2::{self, Digest};
 
-use nova_snark::{
-    provider, spartan,
-    traits::{circuit::TrivialTestCircuit, Group},
+use nova::{
+    provider::{self, PallasEngine, VestaEngine},
+    spartan,
+    traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
     CompressedSNARK, PublicParams, RecursiveSNARK,
 };
 
-type G1 = pasta_curves::pallas::Point;
-type G2 = pasta_curves::vesta::Point;
+type E1 = PallasEngine;
+type E2 = VestaEngine;
 
 type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
 type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
 
-type S1Prime<G1> = spartan::ppsnark::RelaxedR1CSSNARK<G1, EE1<G1>>;
-type S2Prime<G2> = spartan::ppsnark::RelaxedR1CSSNARK<G2, EE2<G2>>;
+type S1Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE1<E>>;
+type S2Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE2<E>>;
 
 pub mod utils;
 use utils::sign;
 
 #[derive(Serialize)]
 struct SendDataBody {
-    snark: CompressedSNARK<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-        S1Prime<G1>,
-        S2Prime<G2>,
-    >,
+    snark: CompressedSNARK<E1, S1Prime<E1>, S2Prime<E2>>,
     signature: Signature,
 }
 
@@ -57,62 +51,53 @@ async fn main() -> Result<()> {
     // create signing circuit
     // checks that the input is in a radius of 100 from the point at (5000, 5000), hardcoded in the circuit definition
     let circuit_primary = ProximityCircuit::new(
-        <<G1 as Group>::Scalar>::from(latitude as u64),
-        <<G1 as Group>::Scalar>::from(longitude as u64),
+        <<E1 as Engine>::Scalar>::from(latitude as u64),
+        <<E1 as Engine>::Scalar>::from(longitude as u64),
     );
-    let circuit_secondary = TrivialTestCircuit::default();
+    let circuit_secondary = TrivialCircuit::default();
 
     println!("Producing public parameters...");
     // produce public parameters
-    let pp = PublicParams::<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-    >::setup(circuit_primary.clone(), circuit_secondary.clone());
+    let pp = PublicParams::<E1>::setup(
+        &circuit_primary.clone(),
+        &circuit_secondary.clone(),
+        &*S1Prime::ck_floor(),
+        &*S2Prime::ck_floor(),
+    )
+    .unwrap();
 
     let num_steps = 1;
 
     // produce a recursive SNARK
-    let mut recursive_snark = RecursiveSNARK::<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-    >::new(
+    let mut recursive_snark = RecursiveSNARK::<E1>::new(
         &pp,
         &circuit_primary,
         &circuit_secondary,
-        vec![<G1 as Group>::Scalar::ZERO],
-        vec![<G2 as Group>::Scalar::ONE],
-    );
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
+    )
+    .unwrap();
 
     for _i in 0..num_steps {
-        let res = recursive_snark.prove_step(
-            &pp,
-            &circuit_primary,
-            &circuit_secondary,
-            vec![<G1 as Group>::Scalar::ZERO],
-            vec![<G2 as Group>::Scalar::ONE],
-        );
-        assert!(res.is_ok());
+        let _res = recursive_snark
+            .prove_step(&pp, &circuit_primary, &circuit_secondary)
+            .unwrap();
     }
 
     // verify the recursive SNARK
     let res = recursive_snark.verify(
         &pp,
         num_steps,
-        &[<G1 as Group>::Scalar::ZERO],
-        &[<G2 as Group>::Scalar::ONE],
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
     );
     assert!(res.is_ok());
 
     // produce the prover and verifier keys for compressed snark
-    let (pk, _vk) = CompressedSNARK::<_, _, _, _, S1Prime<G1>, S2Prime<G2>>::setup(&pp).unwrap();
+    let (pk, _vk) = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::setup(&pp).unwrap();
 
     // produce a compressed SNARK
-    let res =
-        CompressedSNARK::<_, _, _, _, S1Prime<G1>, S2Prime<G2>>::prove(&pp, &pk, &recursive_snark);
+    let res = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::prove(&pp, &pk, &recursive_snark);
     assert!(res.is_ok());
     let compressed_snark = res.unwrap();
 

@@ -13,6 +13,12 @@ This system ensures:
 
 # Prerequisites
 
+First install submodules:
+
+```
+git submodules update
+```
+
 We will simulate a device on our linux machine, and make it run the ioID SDK:
 
 ```
@@ -24,13 +30,21 @@ The device (our linux machine) should be listening at port `8000`
 
 To create a project on the IoTeX chain, and allow a device to be registered to it, follow [this tutorial](https://docs.iotex.io/builders/depin/ioid-step-by-step-tutorial).
 
-Once this is done, go to the ioID registration tool:
+Once this is done, go to the ioID registration tool and install packages:
 
 ```
 cd client/lib/ioid-registration-js
+npm install
 ```
 
 From there, follow the steps in the README except you don't have to go to the tutorial that is linked, as we already installed the ioID SDK.
+
+We also need to set `.env` in `/server`:
+
+```
+IOTEX_TESTNET_RPC_URL=<your rpc url>
+SPENDER_PRIVATE_KEY=<private key for the account that will send rewards - in hex format>
+```
 
 # How it works
 
@@ -75,13 +89,17 @@ From `server` directory:
 First build the verifier key corresponding to the circuit that we want to verify correct execution:
 
 ```
+
 cargo run --bin build_vk
+
 ```
 
 Once the verifier key has been built, we can run the server:
 
 ```
+
 cargo run
+
 ```
 
 The server will start listening on `127.0.0.1:3000`
@@ -93,6 +111,11 @@ From `client` directory, on another terminal:
 Once that is done, we can start sending position data to the server:
 
 ```
+
 cargo run
+
+```
+
+```
 
 ```
