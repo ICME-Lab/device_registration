@@ -1952,12 +1952,12 @@ dependencies = [
  "arecibo",
  "ff",
  "hex",
- "pasta_curves",
  "radius-circuit",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
+ "sppark",
  "tokio",
 ]
 
@@ -1997,9 +1997,9 @@ dependencies = [
 
 [[package]]
 name = "sppark"
-version = "0.1.11"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16bf457036c0a778140ce4c3bcf9ff30c5c70a9d9c0bb04fe513af025b647b2c"
+checksum = "ac5090642d9ae844edd9a5c23cb1fce6724ca88d50c55178ee8d1f656df5826b"
 dependencies = [
  "cc",
  "which",

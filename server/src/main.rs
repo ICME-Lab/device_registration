@@ -9,12 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use ff::Field;
 use nova::{
-    provider::{self, PallasEngine},
+    provider::{self, PallasEngine, VestaEngine},
     spartan,
-    traits::{circuit::TrivialCircuit, CurveCycleEquipped, Engine, Group},
-    CompressedSNARK, VerifierKey,
+    traits::{CurveCycleEquipped, Engine},
+    CompressedSNARK, PublicParams,
 };
-use radius_circuit::circuit::ProximityCircuit;
 
 use sha2::Digest;
 use web3::{
@@ -24,8 +23,8 @@ use web3::{
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
-type G1 = <provider::PallasEngine as Engine>::GE;
-type G2 = pasta_curves::vesta::Point;
+type E1 = PallasEngine;
+type E2 = VestaEngine;
 
 type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
 type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
@@ -107,7 +106,10 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-    let vk = get_vk();
+    let pp = get_pp();
+    let (_pk, vk) =
+        CompressedSNARK::<PallasEngine, S1Prime<PallasEngine>, S2Prime<VestaEngine>>::setup(&pp)
+            .unwrap();
 
     /*
      * VERIFY PROOF
@@ -119,8 +121,8 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     let res = compressed_snark.verify(
         &vk,
         num_steps,
-        vec![<G1 as Group>::Scalar::ZERO],
-        vec![<G2 as Group>::Scalar::ONE],
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
     );
 
     if res.is_err() {
@@ -138,8 +140,12 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
      * Then recover the owner's address from the ioID contract, querying the NFT owner
      */
 
-    let spender_pk =
-        SecretKey::from_str(std::env::var("SPENDER_PRIVATE_KEY").unwrap().as_str()).unwrap();
+    let spender_pk = SecretKey::from_str(
+        std::env::var("SPENDER_PRIVATE_KEY")
+            .unwrap_or_else(|_| panic!("SPENDER_PRIVATE_KEY must be sent in .env"))
+            .as_str(),
+    )
+    .unwrap();
 
     let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
         panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
@@ -211,25 +217,11 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     });
 }
 
-fn get_vk() -> VerifierKey<
-    G1,
-    G2,
-    ProximityCircuit<<G1 as Group>::Scalar>,
-    TrivialCircuit<<G2 as Group>::Scalar>,
-    S1Prime<G1>,
-    S2Prime<G2>,
-> {
-    let pp_str = std::fs::read_to_string("storage/vk.json").unwrap_or_else(|_| {
+fn get_pp() -> PublicParams<PallasEngine> {
+    let pp_str = std::fs::read_to_string("storage/pp.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: VerifierKey<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialCircuit<<G2 as Group>::Scalar>,
-        S1Prime<G1>,
-        S2Prime<G2>,
-    > = serde_json::from_str(&pp_str).unwrap();
+    let pp: PublicParams<PallasEngine> = serde_json::from_str(&pp_str).unwrap();
     pp
 }
 
