@@ -1,0 +1,13 @@
+[
+  {
+    "type": "function",
+    "name": "ownerOf",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      { "name": "owner", "type": "address", "internalType": "address" }
+    ],
+    "stateMutability": "view"
+  }
+]

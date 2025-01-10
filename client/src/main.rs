@@ -1,40 +1,41 @@
 use anyhow::Result;
-use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::fs;
-use std::time::SystemTime;
 
 use ff::Field;
-use zk_engine::nova::{
-    provider::{ipa_pc, PallasEngine, VestaEngine},
-    spartan::{ppsnark, snark},
+use radius_circuit::circuit::ProximityCircuit;
+use sha2::{self, Digest};
+
+use nova::{
+    provider::{self, PallasEngine, VestaEngine},
+    spartan,
     traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
     CompressedSNARK, PublicParams, RecursiveSNARK,
 };
 
-use sha2::{self, Digest};
-use zk_engine::precompiles::signing::SigningCircuit;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Position {
-    latitude: f64,
-    longitude: f64,
-    timestamp: u64,
-}
-
 type E1 = PallasEngine;
 type E2 = VestaEngine;
-type EE1 = ipa_pc::EvaluationEngine<E1>;
-type EE2 = ipa_pc::EvaluationEngine<E2>;
-type S1 = ppsnark::RelaxedR1CSSNARK<E1, EE1>;
-type S2 = snark::RelaxedR1CSSNARK<E2, EE2>;
+
+type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
+type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
+
+type S1Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE1<E>>;
+type S2Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE2<E>>;
+
+pub mod utils;
+use utils::sign;
 
 #[derive(Serialize)]
 struct SendDataBody {
-    data: Position,
-    snark: CompressedSNARK<E1, S1, S2>,
-    did: String,
+    snark: CompressedSNARK<E1, S1Prime<E1>, S2Prime<E2>>,
+    signature: Signature,
+}
+
+#[derive(Serialize)]
+struct Signature {
+    v: String,
+    r: String,
+    s: String,
 }
 
 #[derive(Deserialize)]
@@ -44,104 +45,92 @@ struct SendDataResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv().ok();
-    // Simulate inputs
-    let secret_key_hex = std::env::var("SECRET_KEY_HEX").expect("SECRET_KEY must be set");
-    let secret_key = hex::decode(secret_key_hex).unwrap();
-
-    let latitude = 48.8566;
-    let longitude = 2.3522;
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    // build position object
-    let position = Position {
-        latitude,
-        longitude,
-        timestamp,
-    };
-
-    let hash = hash_position(&position);
-
-    /*
-     * BUILDING THE PUBLIC PARAMETERS
-     */
+    let latitude = 4990;
+    let longitude = 5010;
 
     // create signing circuit
-    type C1 = SigningCircuit<<E1 as Engine>::Scalar>;
-    type C2 = TrivialCircuit<<E2 as Engine>::Scalar>;
+    // checks that the input is in a radius of 100 from the point at (5000, 5000), hardcoded in the circuit definition
+    let circuit_primary = ProximityCircuit::new(
+        <<E1 as Engine>::Scalar>::from(latitude as u64),
+        <<E1 as Engine>::Scalar>::from(longitude as u64),
+    );
+    let circuit_secondary = TrivialCircuit::default();
 
-    let circuit_primary = C1::new(hash.clone(), secret_key);
-    let circuit_secondary = C2::default();
-
-    // produce public parameters
     println!("Producing public parameters...");
+    // produce public parameters
     let pp = PublicParams::<E1>::setup(
-        &circuit_primary,
-        &circuit_secondary,
-        &*S1::ck_floor(),
-        &*S2::ck_floor(),
+        &circuit_primary.clone(),
+        &circuit_secondary.clone(),
+        &*S1Prime::ck_floor(),
+        &*S2Prime::ck_floor(),
     )
     .unwrap();
 
-    /*
-     * PROVING CODE EXECUTION
-     */
-    let z0_primary = [<E1 as Engine>::Scalar::ZERO; 4];
-    let z0_secondary = [<E2 as Engine>::Scalar::ZERO];
+    let num_steps = 1;
 
     // produce a recursive SNARK
-    println!("Generating a RecursiveSNARK...");
-    let mut recursive_snark: RecursiveSNARK<E1> = RecursiveSNARK::<E1>::new(
+    let mut recursive_snark = RecursiveSNARK::<E1>::new(
         &pp,
         &circuit_primary,
         &circuit_secondary,
-        &z0_primary,
-        &z0_secondary,
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
     )
     .unwrap();
 
-    recursive_snark
-        .prove_step(&pp, &circuit_primary, &circuit_secondary)
-        .unwrap();
-
-    /*
-     * VERIFYING PROOF
-     */
+    for _i in 0..num_steps {
+        let _res = recursive_snark
+            .prove_step(&pp, &circuit_primary, &circuit_secondary)
+            .unwrap();
+    }
 
     // verify the recursive SNARK
-    println!("Verifying a RecursiveSNARK...");
-    let res = recursive_snark.verify(&pp, 1, &z0_primary, &z0_secondary);
-    println!("RecursiveSNARK::verify: {:?}", res.is_ok());
+    let res = recursive_snark.verify(
+        &pp,
+        num_steps,
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
+    );
+    assert!(res.is_ok());
+
+    // produce the prover and verifier keys for compressed snark
+    let (pk, _vk) = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::setup(&pp).unwrap();
+
+    // produce a compressed SNARK
+    let res = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::prove(&pp, &pk, &recursive_snark);
+    assert!(res.is_ok());
+    let compressed_snark = res.unwrap();
 
     /*
-     * COMPRESS PROOF
+     * SENDING PROOF TO DEVICE TO BE SIGNED
      */
-    println!("Compressing...");
-    let (pk, _) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
-    let snark = CompressedSNARK::prove(&pp, &pk, &recursive_snark).unwrap();
+
+    // compute proof hash
+    let proof_serialized = serde_json::to_string(&compressed_snark).expect("JSON serialization");
+    let hash = sha2::Sha256::digest(proof_serialized.as_bytes());
+    let hash: [u8; 32] = hash.into();
+
+    // send proof_serialized to device ( DEVICE_URL ), receive signature
+    println!("Sending hash to device to be signed...");
+    let (v, r, s) = sign("0x".to_owned() + &hex::encode(hash));
+    println!("Signature: \nv: {}, \nr: {}, \ns: {}", v, r, s);
+
+    let signature = Signature { v, r, s };
 
     /*
-     * SENDING TO SERVER
+     * SEND TO SERVER FOR VERIFICATION
+     * The server will verify the proof, recover the signer's public key using the signature
+     *
+     * TODO: then request the ioID contract to recover the device's owner, to send him the reward
      */
-
-    println!("Sending data to server...");
-
-    let client = reqwest::Client::new();
-
-    let diddoc_str = fs::read_to_string("./device_register/peerDIDDoc.json").expect("file read");
-
-    let diddoc_json: serde_json::Value = serde_json::from_str(&diddoc_str).expect("JSON parse");
-
-    let did = diddoc_json["id"].as_str().expect("DID string").to_string();
 
     let body = SendDataBody {
-        data: position,
-        snark,
-        did,
+        snark: compressed_snark,
+        signature: signature,
     };
+
+    println!("Sending proof and signature to server...");
+    let client = reqwest::Client::new();
     let url = "http://127.0.0.1:3000/send_data";
     let response = client
         .post(url)
@@ -153,16 +142,4 @@ async fn main() -> Result<()> {
     let result: SendDataResult = response.json().await?;
     println!("Result: {}", result.message);
     Ok(())
-}
-
-fn hash_position(position: &Position) -> Vec<u8> {
-    let payload = serde_json::to_string(&position).expect("JSON serialization");
-    let result = hash_message(&payload);
-    result.to_vec()
-}
-
-fn hash_message(message: &str) -> Box<[u8]> {
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(message.as_bytes());
-    hasher.finalize().as_slice().into()
 }
