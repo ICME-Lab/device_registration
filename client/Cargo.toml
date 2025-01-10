@@ -15,4 +15,4 @@ tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
 anyhow = "1.0.89"
 radius-circuit = { git = "https://github.com/AntoineF4C5/radius-circuit.git" }
 pasta_curves = { version = "0.5", features = ["repr-c", "serde"] }
-nova-snark = { git = "https://github.com/argumentcomputer/Nova", branch = "solidity-verifier-pp-spartan" }
+nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "feat/nebula", package = "arecibo" }

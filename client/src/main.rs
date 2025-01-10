@@ -6,7 +6,7 @@ use ff::Field;
 use radius_circuit::circuit::ProximityCircuit;
 use sha2::{self, Digest};
 
-use nova_snark::{
+use nova::{
     provider, spartan,
     traits::{circuit::TrivialTestCircuit, Group},
     CompressedSNARK, PublicParams, RecursiveSNARK,

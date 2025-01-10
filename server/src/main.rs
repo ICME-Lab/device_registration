@@ -8,9 +8,10 @@ use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 
 use ff::Field;
-use nova_snark::{
-    provider, spartan,
-    traits::{circuit::TrivialTestCircuit, Group},
+use nova::{
+    provider::{self, PallasEngine},
+    spartan,
+    traits::{circuit::TrivialCircuit, CurveCycleEquipped, Engine, Group},
     CompressedSNARK, VerifierKey,
 };
 use radius_circuit::circuit::ProximityCircuit;
@@ -23,7 +24,7 @@ use web3::{
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
-type G1 = pasta_curves::pallas::Point;
+type G1 = <provider::PallasEngine as Engine>::GE;
 type G2 = pasta_curves::vesta::Point;
 
 type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
@@ -41,12 +42,9 @@ struct Position {
 #[derive(Deserialize)]
 struct SendDataBody {
     snark: CompressedSNARK<
-        G1,
-        G2,
-        ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
-        S1Prime<G1>,
-        S2Prime<G2>,
+        provider::PallasEngine,
+        S1Prime<PallasEngine>,
+        S2Prime<<PallasEngine as CurveCycleEquipped>::Secondary>,
     >,
     signature: Signature,
 }
@@ -62,6 +60,10 @@ struct Signature {
 struct SendDataResult {
     message: String,
 }
+
+// Contracts deployment address on IOTEX testnet
+const IOID_REGISTRY_ADDRESS: &str = "0x0A7e595C7889dF3652A19aF52C18377bF17e027D";
+const IOID_CONTRACT_ADDRESS: &str = "0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7";
 
 #[tokio::main]
 async fn main() {
@@ -147,7 +149,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     let ioid_registry_contract = Contract::from_json(
         web3.eth(),
-        H160::from_str("0x0A7e595C7889dF3652A19aF52C18377bF17e027D").unwrap(),
+        H160::from_str(IOID_REGISTRY_ADDRESS).unwrap(),
         include_bytes!("../contract-abi/ioIDRegistry-ABI.json"),
     )
     .unwrap();
@@ -165,7 +167,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
 
     let ioid_contract = Contract::from_json(
         web3.eth(),
-        H160::from_str("0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7").unwrap(),
+        H160::from_str(IOID_CONTRACT_ADDRESS).unwrap(),
         include_bytes!("../contract-abi/ioID-ABI.json"),
     )
     .unwrap();
@@ -213,7 +215,7 @@ fn get_vk() -> VerifierKey<
     G1,
     G2,
     ProximityCircuit<<G1 as Group>::Scalar>,
-    TrivialTestCircuit<<G2 as Group>::Scalar>,
+    TrivialCircuit<<G2 as Group>::Scalar>,
     S1Prime<G1>,
     S2Prime<G2>,
 > {
@@ -224,7 +226,7 @@ fn get_vk() -> VerifierKey<
         G1,
         G2,
         ProximityCircuit<<G1 as Group>::Scalar>,
-        TrivialTestCircuit<<G2 as Group>::Scalar>,
+        TrivialCircuit<<G2 as Group>::Scalar>,
         S1Prime<G1>,
         S2Prime<G2>,
     > = serde_json::from_str(&pp_str).unwrap();
@@ -244,7 +246,11 @@ fn recover_address(message: &[u8; 32], signature: Signature) -> H160 {
         s: s,
     };
 
-    let rpc = web3::transports::Http::new("https://babel-api.testnet.iotex.io").unwrap();
+    let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
+        panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
+    });
+
+    let rpc = web3::transports::Http::new(&rpc_url).unwrap();
     let account = web3::api::Accounts::new(rpc);
     let address = account.recover(recovery).unwrap();
     address
