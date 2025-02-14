@@ -1,41 +1,58 @@
+use std::str::FromStr;
+
 use axum::{
-    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
-use sha2::{self, Digest};
-use std::collections::HashMap;
-use std::process::Command;
 
 use ff::Field;
-use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
-use zk_engine::nova::{
-    provider::{ipa_pc, PallasEngine, VestaEngine},
-    spartan::{ppsnark, snark},
-    traits::Engine,
-    CompressedSNARK, PublicParams, VerifierKey,
+use nova::{
+    provider::{self, PallasEngine, VestaEngine},
+    spartan,
+    traits::{CurveCycleEquipped, Engine},
+    CompressedSNARK, PublicParams,
+};
+
+use sha2::Digest;
+use web3::{
+    api::Namespace,
+    contract::{Contract, Options},
+    signing::SecretKey,
+    types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
 type E1 = PallasEngine;
 type E2 = VestaEngine;
-type EE1 = ipa_pc::EvaluationEngine<E1>;
-type EE2 = ipa_pc::EvaluationEngine<E2>;
-type S1 = ppsnark::RelaxedR1CSSNARK<E1, EE1>;
-type S2 = snark::RelaxedR1CSSNARK<E2, EE2>;
+
+type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
+type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
+
+type S1Prime<G1> = spartan::ppsnark::RelaxedR1CSSNARK<G1, EE1<G1>>;
+type S2Prime<G2> = spartan::ppsnark::RelaxedR1CSSNARK<G2, EE2<G2>>;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
-    latitude: f64,
-    longitude: f64,
-    timestamp: u64,
+    latitude: u64,
+    longitude: u64,
 }
 
 #[derive(Deserialize)]
 struct SendDataBody {
-    data: Position,
-    snark: CompressedSNARK<E1, S1, S2>,
-    did: String,
+    snark: CompressedSNARK<
+        provider::PallasEngine,
+        S1Prime<PallasEngine>,
+        S2Prime<<PallasEngine as CurveCycleEquipped>::Secondary>,
+    >,
+    signature: Signature,
+}
+
+#[derive(Deserialize)]
+struct Signature {
+    v: String,
+    r: String,
+    s: String,
 }
 
 #[derive(Serialize)]
@@ -43,21 +60,15 @@ struct SendDataResult {
     message: String,
 }
 
-#[derive(Deserialize)]
-struct RegisterDeviceBody {
-    diddoc: String,
-}
-
-#[derive(Serialize)]
-struct RegisterResult {
-    message: String,
-}
+// Contracts deployment address on IOTEX testnet
+const IOID_REGISTRY_ADDRESS: &str = "0x0A7e595C7889dF3652A19aF52C18377bF17e027D";
+const IOID_CONTRACT_ADDRESS: &str = "0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7";
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     let app = Router::new()
         .route("/", get(root))
-        .route("/register_device", post(register_device))
         .route("/send_data", post(receive_data));
 
     // run our app with hyper, listening globally on port 3000
@@ -72,159 +83,167 @@ async fn root() -> String {
     "Hello, World!".to_string()
 }
 
-async fn register_device(
-    Json(register_device_body): Json<RegisterDeviceBody>,
-) -> (StatusCode, Json<RegisterResult>) {
-    println!("DIDDoc: {}", register_device_body.diddoc);
-
-    let diddoc_json: serde_json::Value =
-        serde_json::from_str(&register_device_body.diddoc).expect("Failed to parse DIDDoc");
-
-    let did = diddoc_json["id"].as_str().expect("DID not found");
-
-    let result = Command::new("./add_client/build/add_client")
-        .arg(register_device_body.diddoc)
-        .output()
-        .expect("failed to execute process")
-        .stdout;
-
-    let public_key: [u8; 64] = result.try_into().unwrap();
-
-    let mut public_key_with_prefix = [0; 65];
-    public_key_with_prefix[0] = 0x04;
-    public_key_with_prefix[1..].copy_from_slice(&public_key);
-
-    update_hashmap(did, &public_key_with_prefix);
-
-    let result = RegisterResult {
-        message: "Device registered".to_string(),
-    };
-    (StatusCode::CREATED, Json(result))
-}
-
 async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
+    let num_steps = 1;
     println!("Received data");
-    // Make sure device is registered
-    let did = &body.did;
-    let pubkey_bytes = match get_public_key(did) {
-        Some(public_key) => public_key,
-        None => {
-            return Json(SendDataResult {
-                message: "Device not registered".to_string(),
-            })
-        }
-    };
+
+    let compressed_snark = body.snark;
+    let signature = body.signature;
+
+    // recover proof hash
+    let proof_serialized = serde_json::to_string(&compressed_snark).expect("JSON serialization");
+    let hash = sha2::Sha256::digest(proof_serialized.as_bytes());
+    let hash: [u8; 32] = hash.into();
+
+    // recover signer's public key
+    let public_key = recover_address(&hash, signature);
+    println!("Recovered device's public key: {:?}", public_key);
+
+    // Make sure device is registered on a project by checking ioid contract
+    // TODO
 
     /*
     RECOVER VERIFIER KEY
      */
 
-    let vk = get_vk();
+    let pp = get_pp();
+    let (_pk, vk) =
+        CompressedSNARK::<PallasEngine, S1Prime<PallasEngine>, S2Prime<VestaEngine>>::setup(&pp)
+            .unwrap();
 
     /*
      * VERIFY PROOF
      */
 
-    let z0_primary = [<E1 as Engine>::Scalar::ZERO; 4];
-    let z0_secondary = [<E2 as Engine>::Scalar::ZERO];
+    println!("Verifying proof...");
 
-    println!("Verifying ...");
-    let snark = body.snark;
-    let res2 = snark.verify(&vk, 1, &z0_primary, &z0_secondary).unwrap();
+    // verify the compressed SNARK
+    let res = compressed_snark.verify(
+        &vk,
+        num_steps,
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
+    );
 
-    /*
-     * RECOVER SIGNATURE
-     */
-
-    let (signature, _) = res2;
-    let mut signature_bytes: [u8; 64] = [0; 64];
-    for (i, signature_part) in signature.into_iter().enumerate() {
-        let part: [u8; 32] = signature_part.into();
-        signature_bytes[i * 16..(i + 1) * 16].copy_from_slice(&part[0..16]);
+    if res.is_err() {
+        println!("Proof verification failed");
+        return Json(SendDataResult {
+            message: "Proof verification failed".to_string(),
+        });
     }
 
     /*
-     * VERIFY SIGNATURE
+     * Recover owner's public address from device's
+     *
+     * First recover device's ioID NFT token id from ioIDRegistry contract
+     * the ioID NFT is minted to the device's owner when registering the device
+     * Then recover the owner's address from the ioID contract, querying the NFT owner
      */
 
-    let hash = hash_position(&body.data);
-    let public_key = deser_pubkey(&pubkey_bytes);
+    let spender_pk = SecretKey::from_str(
+        std::env::var("SPENDER_PRIVATE_KEY")
+            .unwrap_or_else(|_| panic!("SPENDER_PRIVATE_KEY must be sent in .env"))
+            .as_str(),
+    )
+    .unwrap();
 
-    let is_valid = verify_signature(&public_key, &signature_bytes, &hash);
+    let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
+        panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
+    });
+    let transport = web3::transports::Http::new(&rpc_url).unwrap();
+    let web3 = web3::Web3::new(transport);
 
-    if is_valid {
-        println!("Proof and signature succesfully verified");
-        Json(SendDataResult {
-            message: "Data received and signature verified".to_string(),
-        })
-    } else {
-        println!("Proof and signature verification failed");
-        Json(SendDataResult {
-            message: "Data received but signature verification failed".to_string(),
-        })
-    }
+    let ioid_registry_contract = Contract::from_json(
+        web3.eth(),
+        H160::from_str(IOID_REGISTRY_ADDRESS).unwrap(),
+        include_bytes!("../contract-abi/ioIDRegistry-ABI.json"),
+    )
+    .unwrap();
+
+    let device_id: U256 = match ioid_registry_contract
+        .query("deviceTokenId", public_key, None, Options::default(), None)
+        .await
+    {
+        Ok(device_id) => device_id,
+        Err(e) => panic!(
+            "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
+            e
+        ),
+    };
+
+    let ioid_contract = Contract::from_json(
+        web3.eth(),
+        H160::from_str(IOID_CONTRACT_ADDRESS).unwrap(),
+        include_bytes!("../contract-abi/ioID-ABI.json"),
+    )
+    .unwrap();
+
+    let owner_address: Address = ioid_contract
+        .query("ownerOf", device_id, None, Options::default(), None)
+        .await
+        .unwrap();
+
+    println!("Proof verified. Sending reward to {:?}", owner_address);
+    /*
+     * Send reward to device's owner
+     */
+
+    let tx_object = TransactionParameters {
+        to: Some(owner_address),
+        value: U256::exp10(17),
+        ..Default::default()
+    };
+
+    let signed_tx = web3
+        .accounts()
+        .sign_transaction(tx_object, &spender_pk)
+        .await
+        .unwrap();
+
+    let result = web3
+        .eth()
+        .send_raw_transaction(signed_tx.raw_transaction)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Failed to send transaction: {:?}", e);
+        });
+
+    println!("Proof verified. Transaction hash: {:?}", result);
+    return Json(SendDataResult {
+        message: format!(
+            "Proof verified.\nReward sent to {:?}\nTransaction hash: {:?}",
+            owner_address, result
+        ),
+    });
 }
 
-fn load_hashmap() -> HashMap<String, String> {
-    if !std::path::Path::new("storage/device_map.json").exists() {
-        return HashMap::new();
-    }
-    let hashmap_str = std::fs::read_to_string("storage/device_map.json").unwrap();
-    serde_json::from_str(&hashmap_str).unwrap()
-}
-
-fn save_hashmap(hashmap: &HashMap<String, String>) {
-    if !std::path::Path::new("storage").exists() {
-        std::fs::create_dir("storage").unwrap();
-    }
-    let hashmap_str = serde_json::to_string(hashmap).unwrap();
-    std::fs::write("storage/device_map.json", hashmap_str).unwrap();
-}
-
-fn update_hashmap(did: &str, public_key: &[u8; 65]) {
-    let mut hashmap = load_hashmap();
-    let public_key_base64 = base64::encode(public_key);
-    hashmap.insert(did.to_string(), public_key_base64);
-    save_hashmap(&hashmap);
-}
-
-fn get_public_key(did: &str) -> Option<[u8; 65]> {
-    let hashmap = load_hashmap();
-    let public_key_base64 = hashmap.get(did)?;
-    let public_key = base64::decode(public_key_base64).unwrap();
-    let mut public_key_array = [0; 65];
-    public_key_array.copy_from_slice(&public_key);
-    Some(public_key_array)
-}
-
-fn hash_position(position: &Position) -> Vec<u8> {
-    let payload = serde_json::to_string(&position).expect("JSON serialization");
-    let result = hash_message(&payload);
-    result.to_vec()
-}
-
-fn hash_message(message: &str) -> Box<[u8]> {
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(message.as_bytes());
-    hasher.finalize().as_slice().into()
-}
-
-fn verify_signature(public_key: &PublicKey, sig: &[u8], hash: &[u8]) -> bool {
-    let secp = Secp256k1::new();
-    let message = Message::from_digest_slice(&hash).expect("32 bytes");
-    let signature = Signature::from_compact(sig).expect("64 bytes");
-    secp.verify_ecdsa(&message, &signature, &public_key).is_ok()
-}
-
-fn deser_pubkey(pubkey_bytes: &[u8; 65]) -> PublicKey {
-    PublicKey::from_slice(pubkey_bytes).expect("65 bytes")
-}
-
-fn get_vk() -> VerifierKey<E1, S1, S2> {
-    let pp_str = std::fs::read_to_string("storage/public_params.json").unwrap_or_else(|_| {
+fn get_pp() -> PublicParams<PallasEngine> {
+    let pp_str = std::fs::read_to_string("storage/pp.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: PublicParams<E1> = serde_json::from_str(&pp_str).unwrap();
-    let (_, vk) = CompressedSNARK::<E1, S1, S2>::setup(&pp).unwrap();
-    vk
+    let pp: PublicParams<PallasEngine> = serde_json::from_str(&pp_str).unwrap();
+    pp
+}
+
+fn recover_address(message: &[u8; 32], signature: Signature) -> H160 {
+    let message = RecoveryMessage::Hash(H256::from_slice(message));
+    let v: u64 = u64::from_str_radix(&signature.v[2..], 16).unwrap();
+    let r: H256 = H256::from_slice(&hex::decode(&signature.r[2..]).unwrap());
+    let s: H256 = H256::from_slice(&hex::decode(&signature.s[2..]).unwrap());
+
+    let recovery: Recovery = Recovery {
+        message: message,
+        v: v,
+        r: r,
+        s: s,
+    };
+
+    let rpc_url = std::env::var("IOTEX_TESTNET_RPC_URL").unwrap_or_else(|_| {
+        panic!("IOTEX_TESTNET_RPC_URL must be set in .env");
+    });
+
+    let rpc = web3::transports::Http::new(&rpc_url).unwrap();
+    let account = web3::api::Accounts::new(rpc);
+    let address = account.recover(recovery).unwrap();
+    address
 }

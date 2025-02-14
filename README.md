@@ -1,126 +1,105 @@
 # DePIN Device Registration Using IoTeX ioConnect SDK and NovaNet ZKPs
 
-This project demonstrates DePIN device registration using a secure client-server system built with Rust. It leverages IoTeX's ioConnect SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
-The client collects GPS coordinates, timestamps, and signs them using cryptographic keys. The data is then transmitted with a zero-knowledge proof to the server for trustless verification.
+This project demonstrates DePIN device registration using a secure client-server system built with Rust. It leverages IoTeX's ioID SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
+The client collects GPS coordinates, and signs them using cryptographic keys. The data is then transmitted with a zero-knowledge proof to the server for trustless verification.
 
 ## Overview
 
 This system ensures:
 
-- Data authenticity through ECDSA signatures managed with the ioConnect SDK.
+- Data authenticity through ECDSA signatures managed with the ioID SDK.
 - Privacy-preserving data integrity and computational correctness using zk-SNARKs from NovaNet’s zkEngine.
-- Decentralized Identity Management for DePIN devices via DIDs and DID Documents (DIDDocs) using the ioConnect SDK.
-- Secure transmission of GPS data and zero knowedge proofs over the network, with both client and server ensuring trust through cryptographic protocols.
+- Decentralized Identity Management for DePIN devices via DIDs and DID Documents (DIDDocs) using the ioID SDK.
+
+# Prerequisites
+
+First install submodules:
+
+```
+git submodules update
+```
+
+We will simulate a device on our linux machine, and make it run the ioID SDK:
+
+```
+git clone https://github.com/iotexproject/ioID-SDK
+```
+
+Then allow the device to use ioID capabilities, by following [this tutorial](https://github.com/iotexproject/ioID-SDK/tree/main/example/linux/deviceregister/doc).
+The device (our linux machine) should be listening at port `8000`
+
+To create a project on the IoTeX chain, and allow a device to be registered to it, follow [this tutorial](https://docs.iotex.io/builders/depin/ioid-step-by-step-tutorial).
+
+Once this is done, go to the ioID registration tool and install packages:
+
+```
+cd client/lib/ioid-registration-js
+npm install
+```
+
+From there, follow the steps in the README except you don't have to go to the tutorial that is linked, as we already installed the ioID SDK.
+
+We also need to set `.env` in `/server`:
+
+```
+IOTEX_TESTNET_RPC_URL=<your rpc url>
+SPENDER_PRIVATE_KEY=<private key for the account that will send rewards - in hex format>
+```
 
 # How it works
 
 ## Client Side:
 
-First, the client generates a DIDDoc using it's secret key, and sends it to the server to register.
+The client can then send a proof that it's located in a certain radius from a point (both defined in the circuit, i.e. by the service owning the server)
 
-The client can then send its position with a timestamp with the following workflow:
-
-- The client collects GPS data and timestamps it.
-- It signs the data in a ZK circuit, using the secret key associated to the DIDDoc.
-- The client then generates a zk-SNARK proof of the signed data using NovaNet’s zkEngine.
-- The proof, together with the position object and device DID is then sent to the server.
+- The client collects GPS data.
+- The client then generates a zk-SNARK proof of proximity.
+- The client sends the proof to the device, so that it signs it with its DID key.
+- The proof, together with the signature, is sent to the server.
 
 ## Server Side:
 
-The server first uses the ioConnect SDK to process the received DIDDoc to register the client
+At the beginning of the service, the server creates the verifier key that will allow it to verify proofs sent by clients, stored in `vk.json`.
 
-Then on receiving clients position, the server processes the following steps:
+Then on receiving clients proofs, the server processes the following steps:
 
-- It verifies the sender is registered to the service by checking the device DID, and recovers the associated public key.
+- It recovers the signers public address (i.e. device's public address).
+- It verifies that the device is registered by requesting the ioid contract.
 - It then verifies that the proof is valid and corresponds to a correct execution of the circuit.
-- The signature is then retrieved from the proof, and verified using the public key.
 - If verification succeeds, the server sends a success response. Otherwise, it returns an error.
+- The server also retrieves the device owner's address to send a reward.
 
 # Project structure
 
 - `/client` where all the client actions are developped, it is composed of:
-  - `/device_register` which handles the interactions with ioConnect SDK to create the DIDDoc.
   - `/src` where the different executables are located
 - `/server` where the server is setup, composed of:
   - `/src` where the executable is located
-  - `/did_mapping` where the registered devices are stored
+    - `bin` where the executable to build the verifier key is located
+    - `main.rs` where the executable to run the server is located
 
 # Get started
 
-First install submmodules
-
-```
-git submodule update --init --recursive
-```
-
-## Setting up client
-
-Navigate to the `/client` directory:
-
-```
-cd client
-```
-
-Create a `.env` file to store the private key, as a 64-characters hexadecimal string, corresponding to a 32-bytes secret key.
-
-```
-# .env
-SECRET_KEY_HEX=<your secret key in hex>
-```
-
-1. Device register
-
-Copy the `core` directory from `device_register/ioConnect` to `device_register/src`.
-
-in `device_register/src/core/src/include/config`, remove `autoconfig.h` and rename `autoconfig_linux.h` to `autoconfig.h`
-
-Then build the executable that will generate the DID and DIDDoc used to registed the device:
-
-```
-cd device_register/src && \
-mkdir build && cd build && \
-cmake .. && make && ./DIDComm_server
-```
-
-Running `./DIDComm_Server` creates a DIDDoc using our secret key and stores it in a file (`peerDIDDoc.json` at `client/device_register`) for later use.
-
-## Setting up server
-
-From project root, get to the `add_client` directory:
-
-```
-cd server/add_client
-```
-
-Create a `libraries` directory, and in there also copy `core` directory from `ioConnect`, and change the `autoconfig.h` following same logic as in `Setting up client`.
-
-then:
-
-```
-mkdir build && cd build && \
-cmake .. && make
-```
-
-This will create a `./add_client` executable which will be used later by the server to register devices.
-
-Now that the setup is done, we will walk through running the example
-
-# Using demo
+Make sure the device is still listening on `http://127.0.0.1:8000`
 
 ## Starting the server
 
 From `server` directory:
 
-First build the public params corresponding to the circuit that we want to verify correct execution:
+First build the verifier key corresponding to the circuit that we want to verify correct execution:
 
 ```
-cargo +nightly run --bin build_pp
-```
 
-Once the public params have been built, we can run the server:
+cargo run --bin build_vk
 
 ```
-cargo +nightly run
+
+Once the verifier key has been built, we can run the server:
+
+```
+
+cargo run
+
 ```
 
 The server will start listening on `127.0.0.1:3000`
@@ -129,14 +108,14 @@ The server will start listening on `127.0.0.1:3000`
 
 From `client` directory, on another terminal:
 
-First we need to register the device to the server:
-
-```
-cargo +nightly run --bin register_device
-```
-
 Once that is done, we can start sending position data to the server:
 
 ```
-cargo +nighlty run
+
+cargo run
+
+```
+
+```
+
 ```
