@@ -11,10 +11,8 @@ use sha2::{self, Digest};
 use nova::{
     nebula::rs::{PublicParams, RecursiveSNARK},
     onchain::decider::Decider,
-    provider::{self, Bn256EngineKZG, GrumpkinEngine, PallasEngine, VestaEngine},
-    spartan,
-    traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
-    CompressedSNARK, PublicParams, RecursiveSNARK,
+    provider::{Bn256EngineKZG, GrumpkinEngine},
+    traits::{snark::RelaxedR1CSSNARKTrait, Engine},
 };
 
 type E1 = Bn256EngineKZG;
@@ -84,7 +82,7 @@ async fn main() -> Result<()> {
     let mut rng = thread_rng();
 
     // produce the prover and verifier keys for compressed snark
-    let (decider_pk, decider_vk) = Decider::setup(&rs_pp, &mut rng, z0.len()).unwrap();
+    let (decider_pk, _decider_vk) = Decider::setup(&rs_pp, &mut rng, z0.len()).unwrap();
 
     // produce a compressed SNARK
     let res = Decider::prove(&rs_pp, &decider_pk, &rs, &mut rng);
