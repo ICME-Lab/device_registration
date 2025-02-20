@@ -1,6 +1,6 @@
 use halo2curves::bn256::Bn256;
 use nova::{
-    nebula::rs::PublicParams, onchain::decider::Decider, provider::{self, Bn256EngineKZG, GrumpkinEngine, PallasEngine, VestaEngine}, spartan, traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine}
+    nebula::rs::PublicParams, onchain::decider::Decider, provider::{Bn256EngineKZG, GrumpkinEngine}, traits::{snark::RelaxedR1CSSNARKTrait, Engine}
 };
 use radius_circuit::circuit::ProximityCircuit;
 use rand::thread_rng;

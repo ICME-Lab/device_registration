@@ -2,51 +2,26 @@ use std::str::FromStr;
 
 use axum::{
 
-    extract::{rejection::JsonRejection, FromRequest, FromRequestParts, MatchedPath, Request, State},
-    http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
+    routing::{get, post}, Json, Router
 };
 use dotenv::dotenv;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
-    },
-};
 use ff::Field;
-use halo2curves::bn256::{Bn256, Fr};
+use halo2curves::bn256::Fr;
 use nova::{
-    nebula::rs::{PublicParams, RecursiveSNARK},
-    onchain::{
-        decider::{prepare_calldata, Decider},
-        eth::evm::{compile_solidity, Evm},
-        utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier},
-        verifiers::{
-            groth16::SolidityGroth16VerifierKey,
-            kzg::SolidityKZGVerifierKey,
-            nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey},
-        },
-    },
-    provider::{Bn256EngineKZG, GrumpkinEngine},
-    traits::{snark::RelaxedR1CSSNARKTrait, Engine},
+    nebula::rs::PublicParams,
+    onchain::decider::Decider,
+    provider::Bn256EngineKZG,
 };
 use sha2::Digest;
 use web3::{
     api::Namespace,
-    contract::{Contract, Options},
+    contract::Contract,
     signing::SecretKey,
-    types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
+    types::{Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
-
-type E1 = Bn256EngineKZG;
-type E2 = GrumpkinEngine;
-type EE1 = nova::provider::hyperkzg::EvaluationEngine<Bn256, E1>;
-type EE2 = nova::provider::ipa_pc::EvaluationEngine<E2>;
-type S1 = nova::spartan::snark::RelaxedR1CSSNARK<E1, EE1>; // non-preprocessing SNARK
-type S2 = nova::spartan::snark::RelaxedR1CSSNARK<E2, EE2>; // non-preprocessing SNARK
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
@@ -168,11 +143,8 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    // let device_id= ioid_registry_contract
+    // let device_id: U256 = ioid_registry_contract
     //     .query("deviceTokenId", public_key, None, Options::default(), None)
-    //     .and_then(|device_id| {
-    //         Ok(device_id)
-    //     });
     //     .await
     // {
     //     Ok(device_id) => device_id,

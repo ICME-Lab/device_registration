@@ -1,4 +1,6 @@
 use anyhow::Result;
+use halo2curves::bn256::Bn256;
+use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -7,27 +9,27 @@ use radius_circuit::circuit::ProximityCircuit;
 use sha2::{self, Digest};
 
 use nova::{
-    provider::{self, PallasEngine, VestaEngine},
+    nebula::rs::{PublicParams, RecursiveSNARK},
+    onchain::decider::Decider,
+    provider::{self, Bn256EngineKZG, GrumpkinEngine, PallasEngine, VestaEngine},
     spartan,
     traits::{circuit::TrivialCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
     CompressedSNARK, PublicParams, RecursiveSNARK,
 };
 
-type E1 = PallasEngine;
-type E2 = VestaEngine;
-
-type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
-type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
-
-type S1Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE1<E>>;
-type S2Prime<E> = spartan::ppsnark::RelaxedR1CSSNARK<E, EE2<E>>;
+type E1 = Bn256EngineKZG;
+type E2 = GrumpkinEngine;
+type EE1 = nova::provider::hyperkzg::EvaluationEngine<Bn256, E1>;
+type EE2 = nova::provider::ipa_pc::EvaluationEngine<E2>;
+type S1 = nova::spartan::snark::RelaxedR1CSSNARK<E1, EE1>; // non-preprocessing SNARK
+type S2 = nova::spartan::snark::RelaxedR1CSSNARK<E2, EE2>; // non-preprocessing SNARK
 
 pub mod utils;
 use utils::sign;
 
 #[derive(Serialize)]
 struct SendDataBody {
-    snark: CompressedSNARK<E1, S1Prime<E1>, S2Prime<E2>>,
+    snark: Decider,
     signature: Signature,
 }
 
@@ -50,54 +52,42 @@ async fn main() -> Result<()> {
 
     // create signing circuit
     // checks that the input is in a radius of 100 from the point at (5000, 5000), hardcoded in the circuit definition
-    let circuit_primary = ProximityCircuit::new(
+    let circuit = ProximityCircuit::new(
         <<E1 as Engine>::Scalar>::from(latitude as u64),
         <<E1 as Engine>::Scalar>::from(longitude as u64),
     );
-    let circuit_secondary = TrivialCircuit::default();
 
     println!("Producing public parameters...");
     // produce public parameters
-    let pp = PublicParams::<E1>::setup(
-        &circuit_primary.clone(),
-        &circuit_secondary.clone(),
-        &*S1Prime::ck_floor(),
-        &*S2Prime::ck_floor(),
-    )
-    .unwrap();
+    let rs_pp = PublicParams::<E1>::setup(&circuit.clone(), &*S1::ck_floor(), &*S2::ck_floor());
 
-    let num_steps = 1;
+    let num_steps = 3;
+    let z0 = [<E1 as Engine>::Scalar::ZERO];
 
     // produce a recursive SNARK
-    let mut recursive_snark = RecursiveSNARK::<E1>::new(
-        &pp,
-        &circuit_primary,
-        &circuit_secondary,
-        &[<E1 as Engine>::Scalar::ZERO],
-        &[<E2 as Engine>::Scalar::ONE],
-    )
-    .unwrap();
-
+    let mut rs = RecursiveSNARK::<E1>::new(&rs_pp, &circuit, &z0).unwrap();
+    let mut ic_i = <E1 as Engine>::Scalar::ZERO;
     for _i in 0..num_steps {
-        let _res = recursive_snark
-            .prove_step(&pp, &circuit_primary, &circuit_secondary)
-            .unwrap();
+        rs.prove_step(&rs_pp, &circuit, ic_i).unwrap();
+
+        ic_i = rs.increment_commitment(&rs_pp, &circuit);
     }
 
     // verify the recursive SNARK
-    let res = recursive_snark.verify(
-        &pp,
-        num_steps,
-        &[<E1 as Engine>::Scalar::ZERO],
-        &[<E2 as Engine>::Scalar::ONE],
-    );
+    let res = rs.verify(&rs_pp, num_steps, &z0, ic_i);
     assert!(res.is_ok());
+    println!("RecursiveSNARK::verify: {:?}", res.is_ok(),);
+
+    let zn = res.unwrap();
+    // sanity: check the claimed output with a direct computation of the same
+    assert_eq!(zn, vec![<E1 as Engine>::Scalar::ONE]);
+    let mut rng = thread_rng();
 
     // produce the prover and verifier keys for compressed snark
-    let (pk, _vk) = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::setup(&pp).unwrap();
+    let (decider_pk, decider_vk) = Decider::setup(&rs_pp, &mut rng, z0.len()).unwrap();
 
     // produce a compressed SNARK
-    let res = CompressedSNARK::<E1, S1Prime<E1>, S2Prime<E2>>::prove(&pp, &pk, &recursive_snark);
+    let res = Decider::prove(&rs_pp, &decider_pk, &rs, &mut rng);
     assert!(res.is_ok());
     let compressed_snark = res.unwrap();
 
