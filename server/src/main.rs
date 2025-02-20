@@ -17,7 +17,7 @@ use nova::{
 use sha2::Digest;
 use web3::{
     api::Namespace,
-    contract::Contract,
+    contract::{Contract, Options},
     signing::SecretKey,
     types::{Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
@@ -143,16 +143,10 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    // let device_id: U256 = ioid_registry_contract
-    //     .query("deviceTokenId", public_key, None, Options::default(), None)
-    //     .await
-    // {
-    //     Ok(device_id) => device_id,
-    //     Err(e) => panic!(
-    //         "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
-    //         e
-    //     ),
-    // };
+    let device_id: U256 = ioid_registry_contract
+        .query("deviceTokenId", public_key, None, Options::default(), None)
+        .await
+        .unwrap();
     let device_id = U256::from(3);
 
     let ioid_contract = Contract::from_json(
