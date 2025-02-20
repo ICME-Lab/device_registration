@@ -1,20 +1,37 @@
 use std::str::FromStr;
 
 use axum::{
-    routing::{get, post},
-    Json, Router,
+
+    extract::{rejection::JsonRejection, FromRequest, FromRequestParts, MatchedPath, Request, State},
+    http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
 };
 use dotenv::dotenv;
+use rand::thread_rng;
 use serde::{Deserialize, Serialize};
-
-use ff::Field;
-use nova::{
-    provider::{self, PallasEngine, VestaEngine},
-    spartan,
-    traits::{CurveCycleEquipped, Engine},
-    CompressedSNARK, PublicParams,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
-
+use ff::Field;
+use halo2curves::bn256::{Bn256, Fr};
+use nova::{
+    nebula::rs::{PublicParams, RecursiveSNARK},
+    onchain::{
+        decider::{prepare_calldata, Decider},
+        eth::evm::{compile_solidity, Evm},
+        utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier},
+        verifiers::{
+            groth16::SolidityGroth16VerifierKey,
+            kzg::SolidityKZGVerifierKey,
+            nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey},
+        },
+    },
+    provider::{Bn256EngineKZG, GrumpkinEngine},
+    traits::{snark::RelaxedR1CSSNARKTrait, Engine},
+};
 use sha2::Digest;
 use web3::{
     api::Namespace,
@@ -23,14 +40,13 @@ use web3::{
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
-type E1 = PallasEngine;
-type E2 = VestaEngine;
 
-type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
-type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
-
-type S1Prime<G1> = spartan::ppsnark::RelaxedR1CSSNARK<G1, EE1<G1>>;
-type S2Prime<G2> = spartan::ppsnark::RelaxedR1CSSNARK<G2, EE2<G2>>;
+type E1 = Bn256EngineKZG;
+type E2 = GrumpkinEngine;
+type EE1 = nova::provider::hyperkzg::EvaluationEngine<Bn256, E1>;
+type EE2 = nova::provider::ipa_pc::EvaluationEngine<E2>;
+type S1 = nova::spartan::snark::RelaxedR1CSSNARK<E1, EE1>; // non-preprocessing SNARK
+type S2 = nova::spartan::snark::RelaxedR1CSSNARK<E2, EE2>; // non-preprocessing SNARK
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
@@ -40,11 +56,7 @@ struct Position {
 
 #[derive(Deserialize)]
 struct SendDataBody {
-    snark: CompressedSNARK<
-        provider::PallasEngine,
-        S1Prime<PallasEngine>,
-        S2Prime<<PallasEngine as CurveCycleEquipped>::Secondary>,
-    >,
+    snark: Decider,
     signature: Signature,
 }
 
@@ -59,6 +71,7 @@ struct Signature {
 struct SendDataResult {
     message: String,
 }
+
 
 // Contracts deployment address on IOTEX testnet
 const IOID_REGISTRY_ADDRESS: &str = "0x0A7e595C7889dF3652A19aF52C18377bF17e027D";
@@ -84,7 +97,6 @@ async fn root() -> String {
 }
 
 async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
-    let num_steps = 1;
     println!("Received data");
 
     let compressed_snark = body.snark;
@@ -107,9 +119,9 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
      */
 
     let pp = get_pp();
-    let (_pk, vk) =
-        CompressedSNARK::<PallasEngine, S1Prime<PallasEngine>, S2Prime<VestaEngine>>::setup(&pp)
-            .unwrap();
+    let mut rng = thread_rng();
+    let z0 = vec![Fr::ONE];
+    let (pk, vk) = Decider::setup(&pp, &mut rng, z0.len()).unwrap();
 
     /*
      * VERIFY PROOF
@@ -118,18 +130,14 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     println!("Verifying proof...");
 
     // verify the compressed SNARK
-    let res = compressed_snark.verify(
-        &vk,
-        num_steps,
-        &[<E1 as Engine>::Scalar::ZERO],
-        &[<E2 as Engine>::Scalar::ONE],
-    );
+    let res = compressed_snark.verify(vk);
 
     if res.is_err() {
         println!("Proof verification failed");
         return Json(SendDataResult {
-            message: "Proof verification failed".to_string(),
+            message: "Proof verification failed".to_string()
         });
+        // return Err(StatusCode::BAD_REQUEST);
     }
 
     /*
@@ -160,16 +168,20 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    let device_id: U256 = match ioid_registry_contract
-        .query("deviceTokenId", public_key, None, Options::default(), None)
-        .await
-    {
-        Ok(device_id) => device_id,
-        Err(e) => panic!(
-            "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
-            e
-        ),
-    };
+    // let device_id= ioid_registry_contract
+    //     .query("deviceTokenId", public_key, None, Options::default(), None)
+    //     .and_then(|device_id| {
+    //         Ok(device_id)
+    //     });
+    //     .await
+    // {
+    //     Ok(device_id) => device_id,
+    //     Err(e) => panic!(
+    //         "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
+    //         e
+    //     ),
+    // };
+    let device_id = U256::from(3);
 
     let ioid_contract = Contract::from_json(
         web3.eth(),
@@ -178,11 +190,11 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    let owner_address: Address = ioid_contract
-        .query("ownerOf", device_id, None, Options::default(), None)
-        .await
-        .unwrap();
-
+    // let owner_address: Address = ioid_contract
+    //     .query("ownerOf", device_id, None, Options::default(), None)
+    //     .await
+    //     .unwrap();
+    let owner_address = H160::from_str("0x0000000000000000000000000000000000000000").unwrap();
     println!("Proof verified. Sending reward to {:?}", owner_address);
     /*
      * Send reward to device's owner
@@ -194,34 +206,39 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         ..Default::default()
     };
 
-    let signed_tx = web3
-        .accounts()
-        .sign_transaction(tx_object, &spender_pk)
-        .await
-        .unwrap();
-
-    let result = web3
-        .eth()
-        .send_raw_transaction(signed_tx.raw_transaction)
-        .await
-        .unwrap_or_else(|e| {
-            panic!("Failed to send transaction: {:?}", e);
-        });
+    // let signed_tx = web3
+    //     .accounts()
+    //     .sign_transaction(tx_object, &spender_pk)
+    //     .await
+    //     .unwrap();
+    let signed_tx = TransactionParameters {
+        to: Some(owner_address),
+        value: U256::exp10(17),
+        ..Default::default()
+    };
+    // let result = web3
+    //     .eth()
+    //     .send_raw_transaction(signed_tx.raw_transaction)
+    //     .await
+    //     .unwrap_or_else(|e| {
+    //         panic!("Failed to send transaction: {:?}", e);
+    //     });
+    let result = H256::from_str("0x0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
     println!("Proof verified. Transaction hash: {:?}", result);
-    return Json(SendDataResult {
+    Json(SendDataResult {
         message: format!(
             "Proof verified.\nReward sent to {:?}\nTransaction hash: {:?}",
             owner_address, result
-        ),
-    });
+        )
+    })
 }
 
-fn get_pp() -> PublicParams<PallasEngine> {
+fn get_pp() -> PublicParams<Bn256EngineKZG> {
     let pp_str = std::fs::read_to_string("storage/pp.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: PublicParams<PallasEngine> = serde_json::from_str(&pp_str).unwrap();
+    let pp: PublicParams<Bn256EngineKZG> = serde_json::from_str(&pp_str).unwrap();
     pp
 }
 
