@@ -19,7 +19,7 @@ use web3::{
     api::Namespace,
     contract::{Contract, Options},
     signing::SecretKey,
-    types::{Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
+    types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
 
 
@@ -93,10 +93,14 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-    let pp = get_pp();
-    let mut rng = thread_rng();
-    let z0 = vec![Fr::ONE];
-    let (pk, vk) = Decider::setup(&pp, &mut rng, z0.len()).unwrap();
+
+    let (_pk, vk) = {
+        let pp = get_pp();
+        let mut rng = thread_rng();
+        let z0 = vec![Fr::ONE];
+        let (pk, vk) = Decider::setup(&pp, &mut rng, z0.len()).unwrap();
+        (pk, vk)
+    };
 
     /*
      * VERIFY PROOF
@@ -147,7 +151,6 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         .query("deviceTokenId", public_key, None, Options::default(), None)
         .await
         .unwrap();
-    let device_id = U256::from(3);
 
     let ioid_contract = Contract::from_json(
         web3.eth(),
@@ -156,11 +159,10 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    // let owner_address: Address = ioid_contract
-    //     .query("ownerOf", device_id, None, Options::default(), None)
-    //     .await
-    //     .unwrap();
-    let owner_address = H160::from_str("0x0000000000000000000000000000000000000000").unwrap();
+    let owner_address: Address = ioid_contract
+        .query("ownerOf", device_id, None, Options::default(), None)
+        .await
+        .unwrap();
     println!("Proof verified. Sending reward to {:?}", owner_address);
     /*
      * Send reward to device's owner
@@ -172,24 +174,19 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         ..Default::default()
     };
 
-    // let signed_tx = web3
-    //     .accounts()
-    //     .sign_transaction(tx_object, &spender_pk)
-    //     .await
-    //     .unwrap();
-    let signed_tx = TransactionParameters {
-        to: Some(owner_address),
-        value: U256::exp10(17),
-        ..Default::default()
-    };
-    // let result = web3
-    //     .eth()
-    //     .send_raw_transaction(signed_tx.raw_transaction)
-    //     .await
-    //     .unwrap_or_else(|e| {
-    //         panic!("Failed to send transaction: {:?}", e);
-    //     });
-    let result = H256::from_str("0x0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+    let signed_tx = web3
+        .accounts()
+        .sign_transaction(tx_object, &spender_pk)
+        .await
+        .unwrap();
+
+    let result = web3
+        .eth()
+        .send_raw_transaction(signed_tx.raw_transaction)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Failed to send transaction: {:?}", e);
+        });
 
     println!("Proof verified. Transaction hash: {:?}", result);
     Json(SendDataResult {
