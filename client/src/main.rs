@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Result;
 use halo2curves::bn256::Bn256;
 use rand::thread_rng;
@@ -81,14 +83,17 @@ async fn main() -> Result<()> {
     assert_eq!(zn, vec![<E1 as Engine>::Scalar::ONE]);
     let mut rng = thread_rng();
 
+    let start = Instant::now();
     // produce the prover and verifier keys for compressed snark
     let (decider_pk, _decider_vk) = Decider::setup(&rs_pp, &mut rng, z0.len()).unwrap();
+    println!("Decider setup took: {:?}", start.elapsed());
 
+    let start = Instant::now();
     // produce a compressed SNARK
     let res = Decider::prove(&rs_pp, &decider_pk, &rs, &mut rng);
     assert!(res.is_ok());
     let compressed_snark = res.unwrap();
-
+    println!("Decider prove took: {:?}", start.elapsed());
     /*
      * SENDING PROOF TO DEVICE TO BE SIGNED
      */
@@ -100,7 +105,8 @@ async fn main() -> Result<()> {
 
     // send proof_serialized to device ( DEVICE_URL ), receive signature
     println!("Sending hash to device to be signed...");
-    let (v, r, s) = sign("0x".to_owned() + &hex::encode(hash));
+    let hex_hash = "0x".to_owned() + &hex::encode(hash);
+    let (v, r, s) = sign(hex_hash);
     println!("Signature: \nv: {}, \nr: {}, \ns: {}", v, r, s);
 
     let signature = Signature { v, r, s };

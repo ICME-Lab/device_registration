@@ -1,19 +1,28 @@
 use std::str::FromStr;
 
 use axum::{
-
-    routing::{get, post}, Json, Router
+    routing::{get, post},
+    Json, Router,
 };
 use dotenv::dotenv;
-use rand::thread_rng;
-use serde::{Deserialize, Serialize};
 use ff::Field;
 use halo2curves::bn256::Fr;
 use nova::{
     nebula::rs::PublicParams,
-    onchain::decider::Decider,
+    onchain::{
+        decider::{prepare_calldata, Decider},
+        eth::evm::{compile_solidity, Evm},
+        utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier},
+        verifiers::{
+            groth16::SolidityGroth16VerifierKey,
+            kzg::SolidityKZGVerifierKey,
+            nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey},
+        },
+    },
     provider::Bn256EngineKZG,
 };
+use rand::thread_rng;
+use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use web3::{
     api::Namespace,
@@ -21,7 +30,7 @@ use web3::{
     signing::SecretKey,
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
-
+use std::time::Instant;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
@@ -46,7 +55,6 @@ struct Signature {
 struct SendDataResult {
     message: String,
 }
-
 
 // Contracts deployment address on IOTEX testnet
 const IOID_REGISTRY_ADDRESS: &str = "0x0A7e595C7889dF3652A19aF52C18377bF17e027D";
@@ -93,7 +101,6 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-
     let (_pk, vk) = {
         let pp = get_pp();
         let mut rng = thread_rng();
@@ -106,19 +113,56 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
      * VERIFY PROOF
      */
 
+    let start = Instant::now();
     println!("Verifying proof...");
 
     // verify the compressed SNARK
-    let res = compressed_snark.verify(vk);
+    let res = compressed_snark.verify(vk.clone());
 
     if res.is_err() {
         println!("Proof verification failed");
         return Json(SendDataResult {
-            message: "Proof verification failed".to_string()
+            message: "Proof verification failed".to_string(),
         });
-        // return Err(StatusCode::BAD_REQUEST);
     }
 
+    {
+    // Now, let's generate the Solidity code that verifies this Decider final proof
+    let function_selector =
+        get_function_selector_for_nova_cyclefold_verifier(compressed_snark.z_0.len() * 2 + 1);
+
+    let calldata: Vec<u8> = prepare_calldata(function_selector, &compressed_snark).unwrap();
+
+    // prepare the setup params for the solidity verifier
+    let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((
+        vk.pp_hash,
+        SolidityGroth16VerifierKey::from(vk.groth16_vk.clone()),
+        SolidityKZGVerifierKey::from((vk.kzg_vk.clone(), Vec::new())),
+        compressed_snark.z_0.len(),
+    ));
+
+    // generate the solidity code
+    let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
+
+    // verify the proof against the solidity code in the EVM
+    let nova_cyclefold_verifier_bytecode = compile_solidity(&decider_solidity_code, "NovaDecider");
+    let mut evm = Evm::default();
+
+    let verifier_address = evm.create(nova_cyclefold_verifier_bytecode);
+    println!("verifier_address: {:?}", verifier_address);
+    let (gas, output) = evm.call(verifier_address, calldata.clone());
+    println!("Solidity::verify: {:?}, gas: {:?}", output, gas);
+    assert_eq!(*output.last().unwrap(), 1);
+
+    // save smart contract and the calldata
+    println!("storing nova-verifier.sol and the calldata into files");
+    use std::fs;
+    fs::write("./nova-verifier.sol", decider_solidity_code.clone())
+        .expect("Unable to write to file");
+    fs::write("./solidity-calldata.calldata", calldata.clone()).expect("");
+    let s = get_formatted_calldata(calldata.clone());
+    fs::write("./solidity-calldata.inputs", s.join(",\n")).expect("");
+    }
     /*
      * Recover owner's public address from device's
      *
@@ -193,7 +237,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         message: format!(
             "Proof verified.\nReward sent to {:?}\nTransaction hash: {:?}",
             owner_address, result
-        )
+        ),
     })
 }
 
