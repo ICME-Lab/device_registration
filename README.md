@@ -16,7 +16,8 @@ This system ensures:
 First install submodules:
 
 ```
-git submodules update
+git submodule init
+git submodule update
 ```
 
 We will simulate a device on our linux machine, and make it run the ioID SDK:
@@ -90,7 +91,7 @@ First build the verifier key corresponding to the circuit that we want to verify
 
 ```
 
-cargo run --bin build_vk
+cargo run --bin build_pp
 
 ```
 
