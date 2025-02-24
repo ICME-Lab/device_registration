@@ -59,7 +59,7 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable {
-        require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
+        require(address(this).balance >= 1 ether, "Insufficient contract balance");
 
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
@@ -152,8 +152,7 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable returns (bool) {
-        require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
-
+        require(address(this).balance >= 1 ether, "Insufficient contract balance");
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
             i_z0_zi, U_i_cmW_U_i_cmE, u_i_cmW, cmT_r, pA, pB, pC, challenge_W_challenge_E_kzg_evals, kzg_proof
@@ -194,8 +193,7 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable returns (address) {
-        require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
-
+        require(address(this).balance >= 1 ether, "Insufficient contract balance");
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
             i_z0_zi, U_i_cmW_U_i_cmE, u_i_cmW, cmT_r, pA, pB, pC, challenge_W_challenge_E_kzg_evals, kzg_proof
@@ -236,8 +234,7 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable returns (uint256) {
-        require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
-
+        require(address(this).balance >= 1 ether, "Insufficient contract balance");
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
             i_z0_zi, U_i_cmW_U_i_cmE, u_i_cmW, cmT_r, pA, pB, pC, challenge_W_challenge_E_kzg_evals, kzg_proof
@@ -277,8 +274,7 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable returns (address) {
-        require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
-
+        require(address(this).balance >= 1 ether, "Insufficient contract balance");
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
             i_z0_zi, U_i_cmW_U_i_cmE, u_i_cmW, cmT_r, pA, pB, pC, challenge_W_challenge_E_kzg_evals, kzg_proof

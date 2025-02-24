@@ -1,3 +1,5 @@
+use std::env;
+
 use nova::onchain::{decider::{prepare_calldata, Decider, DeciderVerifierKey}, eth::evm::{compile_solidity, Evm}, utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier}, verifiers::{groth16::SolidityGroth16VerifierKey, kzg::SolidityKZGVerifierKey, nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey}}};
 
 
@@ -33,13 +35,14 @@ pub fn generate_solidity_verifier(
     assert_eq!(*output.last().unwrap(), 1);
 
     // save smart contract and the calldata
-    println!("storing OnchainVerifier.sol and the calldata into files");
+    // println!("storing OnchainVerifier.sol and the calldata into files");
     use std::fs;
-    fs::write("./hardhat/contracts/OnchainVerifier.sol", decider_solidity_code.clone())
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    fs::write(format!("{}/hardhat/contracts/OnchainVerifier.sol", manifest_dir), decider_solidity_code.clone())
         .expect("Unable to write to file");
-    fs::write("./hardhat/contracts/solidity-calldata.calldata", calldata.clone()).expect("");
+    fs::write(format!("{}/hardhat/contracts/solidity-calldata.calldata", manifest_dir), calldata.clone()).expect("");
     let s = get_formatted_calldata(calldata.clone());
-    fs::write("./hardhat/contracts/solidity-calldata.inputs", s.join(",\n")).expect("");
+    fs::write(format!("{}/hardhat/contracts/solidity-calldata.inputs", manifest_dir), s.join(",\n")).expect("");
 
     calldata
 }

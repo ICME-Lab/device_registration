@@ -1,87 +1,10 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
-    "/Users/albertocentelles/Dropbox/cryptography/device_registration/hardhat/contracts/Lock.sol": {
-      "lastModificationDate": 1740251040532,
-      "contentHash": "7eee587c347fe6b1de50c96688cb9477",
-      "sourceName": "contracts/Lock.sol",
-      "solcConfig": {
-        "version": "0.8.28",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "viaIR": true,
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
-      "versionPragmas": [
-        "^0.8.28"
-      ],
-      "artifacts": [
-        "Lock"
-      ]
-    },
-    "/Users/albertocentelles/Dropbox/cryptography/device_registration/hardhat/contracts/NovaVerifier.sol": {
-      "lastModificationDate": 1740403590776,
-      "contentHash": "1965b69983516c9c871adf81a775d39b",
-      "sourceName": "contracts/NovaVerifier.sol",
-      "solcConfig": {
-        "version": "0.8.28",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "viaIR": true,
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
-      "versionPragmas": [
-        ">=0.7.0 <0.9.0"
-      ],
-      "artifacts": [
-        "Groth16Verifier",
-        "KZG10Verifier",
-        "LimbsDecomposition",
-        "NovaDecider"
-      ]
-    },
-    "/Users/albertocentelles/Dropbox/cryptography/device_registration/hardhat/contracts/DemoNovaNetIoTex.sol": {
-      "lastModificationDate": 1740408345204,
-      "contentHash": "efaec79692262f4e57ee60f4dde6b10f",
-      "sourceName": "contracts/DemoNovaNetIoTex.sol",
+    "/Users/albertocentelles/Dropbox/cryptography/device_registration/onchain/hardhat/contracts/DemoOnchainRewards.sol": {
+      "lastModificationDate": 1740428151137,
+      "contentHash": "4786c589c6ba5c96bcd1d2854fd5a8f7",
+      "sourceName": "contracts/DemoOnchainRewards.sol",
       "solcConfig": {
         "version": "0.8.28",
         "settings": {
@@ -116,6 +39,46 @@
         "IIoIDRegistry",
         "INovaDecider",
         "IoTeXRewardDistributor"
+      ]
+    },
+    "/Users/albertocentelles/Dropbox/cryptography/device_registration/onchain/hardhat/contracts/OnchainVerifier.sol": {
+      "lastModificationDate": 1740427346698,
+      "contentHash": "1965b69983516c9c871adf81a775d39b",
+      "sourceName": "contracts/OnchainVerifier.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.0 <0.9.0"
+      ],
+      "artifacts": [
+        "Groth16Verifier",
+        "KZG10Verifier",
+        "LimbsDecomposition",
+        "NovaDecider"
       ]
     }
   }

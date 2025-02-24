@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-artifact-1",
   "contractName": "INovaDecider",
-  "sourceName": "contracts/DemoNovaNetIoTex.sol",
+  "sourceName": "contracts/DemoOnchainRewards.sol",
   "abi": [
     {
       "inputs": [

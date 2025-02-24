@@ -18,9 +18,11 @@ pub fn sign(digest: String) -> Signature {
     if !digest.len() == 66 {
         panic!("Digest must be 32 bytes long");
     }
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let mut command = Command::new("node");
     command
-        .arg("./lib/ioid-registration-js/signDigest.js")
+        .arg(format!("{}/lib/ioid-registration-js/signDigest.js", manifest_dir))
         .arg(digest)
         .stdout(std::process::Stdio::piped());
 

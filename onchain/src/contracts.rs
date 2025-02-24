@@ -45,7 +45,6 @@ pub fn get_reward_distributor_contract() -> Result<Contract<Http>> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
 
     let abi_file_path = format!("{}/hardhat/artifacts/contracts/DemoOnchainRewards.sol/IoTeXRewardDistributor.json", manifest_dir);
-    println!("abi_file_path: {:?}", abi_file_path);
     let mut abi_file = File::open(abi_file_path).unwrap();
     let mut abi_json = String::new();
     abi_file.read_to_string(&mut abi_json).unwrap();
