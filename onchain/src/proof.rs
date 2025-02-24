@@ -7,7 +7,7 @@ use ff::Field;
 use rand::rngs::ThreadRng;
 use sha2::Digest;
 
-use crate::utils::{load_from_bson, save_to_bson, sign, Signature};
+use crate::utils::{load_from_bson, sign, Signature};
 
 type E1 = Bn256EngineKZG;
 type E2 = GrumpkinEngine;

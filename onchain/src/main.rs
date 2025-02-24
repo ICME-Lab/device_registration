@@ -1,46 +1,26 @@
 #![allow(non_snake_case)]
 
-use std::{str::FromStr, time::Instant};
+use std::str::FromStr;
 
 use anyhow::Result;
 use constants::RPC_URL;
 use contracts::print_reward_contract_balance;
-use halo2curves::bn256::{Bn256, Fr};
 use proof::setup_decider;
-use rand::{rngs::ThreadRng, thread_rng, Rng};
-use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
+use rand::thread_rng;
 
-use ff::Field;
 use radius_circuit::circuit::ProximityCircuit;
 use sha2::{self, Digest};
 
 use nova::{
-    nebula::rs::{PublicParams, RecursiveSNARK},
-    onchain::{
-        decider::{prepare_calldata, Decider, DeciderProverKey, DeciderVerifierKey},
-        eth::evm::{compile_solidity, Evm},
-        utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier},
-        verifiers::{
-            groth16::SolidityGroth16VerifierKey,
-            kzg::SolidityKZGVerifierKey,
-            nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey},
-        },
-    },
-    provider::{Bn256EngineKZG, GrumpkinEngine},
-    traits::{snark::RelaxedR1CSSNARKTrait, Engine},
+    onchain::utils::get_formatted_calldata,
+    provider::Bn256EngineKZG,
+    traits::Engine,
 };
 
-use bson::{from_slice, to_vec};
-use secp256k1::SecretKey as SecpSecretKey;
-use std::fs::File;
-use std::io::{Read, Write};
-use utils::sign;
 use web3::{
-    contract::{deploy::Error, tokens::Tokenize, Contract, Options},
-    signing::SecretKey,
+    contract::Options,
     transports::Http,
-    types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U128, U256},
+    types::{H256, U256},
 };
 use web3::Web3;
 
