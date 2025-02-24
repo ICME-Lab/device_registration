@@ -110,8 +110,6 @@ contract IoTeXRewardDistributor {
         bytes32 hash,    // The proof hash
         uint8 v, bytes32 r, bytes32 s // Signature components
     ) external payable returns (bool) {
-        // require(msg.value >= 1 ether, "Insufficient reward amount"); // Ensure contract has funds
-
         // Step 1: Call NovaDecider contract to verify proof
         bool validProof = novaDecider.verifyNovaProof(
             i_z0_zi, U_i_cmW_U_i_cmE, u_i_cmW, cmT_r, pA, pB, pC, challenge_W_challenge_E_kzg_evals, kzg_proof
@@ -119,22 +117,6 @@ contract IoTeXRewardDistributor {
         require(validProof, "NovaDecider verification failed");
         emit VerificationSuccess();
 
-        // // Step 2: Recover device address from signature
-        // address deviceAddress = recoverSigner(hash, v, r, s);
-        // require(deviceAddress != address(0), "Invalid signature");
-        // emit DeviceAddressRecovered(deviceAddress);
-
-        // // Step 3: Get the device ID from ioIDRegistry
-        // uint256 deviceId = ioIDRegistry.deviceTokenId(deviceAddress);
-        // emit DeviceIdFound(deviceId);
-        // // Step 4: Get the device owner from ioID
-        // address ownerAddress = ioID.ownerOf(deviceId);
-        // require(ownerAddress != address(0), "Device owner not found");
-        // emit DeviceOwnerFound(ownerAddress);
-        // // Step 5: Send reward of 1 IOTX
-        // payable(ownerAddress).transfer(1 ether);
-
-        // emit RewardSent(ownerAddress, 1 ether);
         return true;
     }
 
@@ -160,22 +142,6 @@ contract IoTeXRewardDistributor {
         require(validProof, "NovaDecider verification failed");
         emit VerificationSuccess();
 
-        // // Step 2: Recover device address from signature
-        // address deviceAddress = recoverSigner(hash, v, r, s);
-        // require(deviceAddress != address(0), "Invalid signature");
-        // emit DeviceAddressRecovered(deviceAddress);
-
-        // // Step 3: Get the device ID from ioIDRegistry
-        // uint256 deviceId = ioIDRegistry.deviceTokenId(deviceAddress);
-        // emit DeviceIdFound(deviceId);
-        // // Step 4: Get the device owner from ioID
-        // address ownerAddress = ioID.ownerOf(deviceId);
-        // require(ownerAddress != address(0), "Device owner not found");
-        // emit DeviceOwnerFound(ownerAddress);
-        // // Step 5: Send reward of 1 IOTX
-        // payable(ownerAddress).transfer(1 ether);
-
-        // emit RewardSent(ownerAddress, 1 ether);
         return true;
     }
 
@@ -206,17 +172,6 @@ contract IoTeXRewardDistributor {
         require(deviceAddress != address(0), "Invalid signature");
         emit DeviceAddressRecovered(deviceAddress);
 
-        // // Step 3: Get the device ID from ioIDRegistry
-        // uint256 deviceId = ioIDRegistry.deviceTokenId(deviceAddress);
-        // emit DeviceIdFound(deviceId);
-        // // Step 4: Get the device owner from ioID
-        // address ownerAddress = ioID.ownerOf(deviceId);
-        // require(ownerAddress != address(0), "Device owner not found");
-        // emit DeviceOwnerFound(ownerAddress);
-        // // Step 5: Send reward of 1 IOTX
-        // payable(ownerAddress).transfer(1 ether);
-
-        // emit RewardSent(ownerAddress, 1 ether);
         return deviceAddress;
     }
 
@@ -250,14 +205,7 @@ contract IoTeXRewardDistributor {
         // Step 3: Get the device ID from ioIDRegistry
         uint256 deviceId = ioIDRegistry.deviceTokenId(deviceAddress);
         emit DeviceIdFound(deviceId);
-        // // Step 4: Get the device owner from ioID
-        // address ownerAddress = ioID.ownerOf(deviceId);
-        // require(ownerAddress != address(0), "Device owner not found");
-        // emit DeviceOwnerFound(ownerAddress);
-        // // Step 5: Send reward of 1 IOTX
-        // payable(ownerAddress).transfer(1 ether);
 
-        // emit RewardSent(ownerAddress, 1 ether);
         return deviceId;
     }
 
