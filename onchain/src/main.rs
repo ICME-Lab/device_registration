@@ -3,6 +3,7 @@
 use std::{str::FromStr, time::Instant};
 
 use anyhow::Result;
+use constants::RPC_URL;
 use contracts::print_reward_contract_balance;
 use halo2curves::bn256::{Bn256, Fr};
 use proof::setup_decider;
@@ -41,6 +42,8 @@ use web3::{
     transports::Http,
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U128, U256},
 };
+use web3::Web3;
+
 
 use crate::{proof::{generate_rs_proof, generate_decider_proof, sign_proof_with_device, verify_proof}, calldata::{generate_iotex_verifier_calldata, generate_iotex_reward_calldata}, contracts::{get_reward_distributor_contract, get_nova_decider_contract}, solidity::generate_solidity_verifier};
 
@@ -100,196 +103,48 @@ async fn main() -> Result<()> {
         Err(e) => println!("Error sending transaction: {:?}", e),
     }
 
-    let res_tx_hash: Result<bool, web3::contract::Error> = reward_distributor_contract
-        .query(
-            "verifyAndReward2",
+    let secp_secret_key = web3::signing::SecretKey::from_str(
+        "ee19147e85b07e448be482f7e7f946c6ac8692ba942891b9b6120d7d2aee1a98",
+    )
+    .expect("Invalid private key");
+
+    let transport = Http::new(RPC_URL)?; // Replace with your Ethereum node URL
+    let web3 = Web3::new(transport);
+
+    let res_tx_hash: Result<H256, web3::Error> = reward_distributor_contract
+        .signed_call(
+            "verifyAndReward",
             reward_calldata,
-            None,
-            Options::default(),
-            None,
+            options.clone(),
+            &secp_secret_key,
         )
         .await;
+
+    // Wait for 5 seconds
+    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+
     match res_tx_hash {
         Ok(tx_hash) => {
             println!("Transaction sent, hash: {:?}", tx_hash);
+            // Fetch transaction receipt
+            match web3.eth().transaction_receipt(tx_hash).await? {
+                Some(receipt) => {
+                    println!("Transaction Receipt: {:?}", receipt);
+                    if let Some(status) = receipt.status {
+                        if status == 1.into() {
+                            println!("✅ Transaction Successful!");
+                        } else {
+                            println!("❌ Transaction Failed!");
+                            for log in receipt.logs {
+                                println!("Log: {:?}", log);
+                            }
+                        }
+                    }
+                }
+                None => println!("Transaction is still pending."),
+            }
         }
         Err(e) => println!("Error sending transaction: {:?}", e),
     }
-
-    let res_tx_hash: Result<H160, web3::contract::Error> = reward_distributor_contract
-        .query(
-            "verifyAndReward4",
-            reward_calldata,
-            None,
-            Options {
-                value: Some(U256::from_dec_str("1000000000000000000").unwrap()), // 1 IOTX in Wei
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
-    match res_tx_hash {
-        Ok(tx_hash) => {
-            println!("Transaction sent, hash: {:?}", tx_hash);
-        }
-        Err(e) => println!("Error sending transaction: {:?}", e),
-    }
-
-    let res_tx_hash: Result<U256, web3::contract::Error> = reward_distributor_contract
-        .query(
-            "verifyAndReward5",
-            reward_calldata,
-            None,
-            Options {
-                value: Some(U256::from_dec_str("1000000000000000000").unwrap()), // 1 IOTX in Wei
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
-    match res_tx_hash {
-        Ok(tx_hash) => {
-            println!("Transaction sent, hash: {:?}", tx_hash);
-        }
-        Err(e) => println!("Error sending transaction: {:?}", e),
-    }
-
-    let res_tx_hash: Result<H160, web3::contract::Error> = reward_distributor_contract
-        .query(
-            "verifyAndReward6",
-            reward_calldata,
-            None,
-            Options {
-                value: Some(U256::from_dec_str("1000000000000000000").unwrap()), // 1 IOTX in Wei
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
-    match res_tx_hash {
-        Ok(tx_hash) => {
-            println!("Transaction sent, hash: {:?}", tx_hash);
-        }
-        Err(e) => println!("Error sending transaction: {:?}", e),
-    }
-
-    // let secp_secret_key = web3::signing::SecretKey::from_str(
-    //     "ee19147e85b07e448be482f7e7f946c6ac8692ba942891b9b6120d7d2aee1a98",
-    // )
-    // .expect("Invalid private key");
-
-    // let res_tx_hash: Result<H256, web3::Error> = reward_distributor_contract
-    //     .signed_call(
-    //         "verifyAndReward",
-    //         (
-    //             i_z0_zi,
-    //             U_i_cmW_U_i_cmE,
-    //             u_i_cmW,
-    //             cmT_r,
-    //             pA,
-    //             pB,
-    //             pC,
-    //             challenge_W_challenge_E_kzg_evals,
-    //             kzg_proof,
-    //             hash_h256,
-    //             signature_v,
-    //             signature_r,
-    //             signature_s,
-    //         ),
-    //         options.clone(),
-    //         &secp_secret_key,
-    //     )
-    //     .await;
-    // match res_tx_hash {
-    //     Ok(tx_hash) => {
-    //         println!("Transaction sent, hash: {:?}", tx_hash);
-    //         // Fetch transaction receipt
-    //         match web3.eth().transaction_receipt(tx_hash).await? {
-    //             Some(receipt) => {
-    //                 println!("Transaction Receipt: {:?}", receipt);
-    //                 if let Some(status) = receipt.status {
-    //                     if status == 1.into() {
-    //                         println!("✅ Transaction Successful!");
-    //                     } else {
-    //                         println!("❌ Transaction Failed!");
-    //                         for log in receipt.logs {
-    //                             println!("Log: {:?}", log);
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             None => println!("Transaction is still pending."),
-    //         }
-    //     }
-    //     Err(e) => println!("Error sending transaction: {:?}", e),
-    // }
-
-    // println!("device_id: {:?}", device_id);
-    // let ioid_contract = Contract::from_json(
-    //     web3.eth(),
-    //     H160::from_str(IOID_CONTRACT_ADDRESS).unwrap(),
-    //     include_bytes!("../contract-abi/ioID-ABI.json"),
-    // )
-    // .unwrap();
-
-    // println!("ioid_contract: {:?}", ioid_contract);
-
-    // let owner_address: Address = ioid_contract
-    //     .query("ownerOf", device_id, None, Options::default(), None)
-    //     .await
-    //     .unwrap();
-    // println!("Proof verified. Sending reward to {:?}", owner_address);
-
-    // /*
-    //  * Send reward to device's owner
-    //  */
-    // let tx_object = TransactionParameters {
-    //     to: Some(owner_address),
-    //     value: U256::exp10(1),
-    //     ..Default::default()
-    // };
-
-    // let spender_sk =
-    //     SecretKey::from_str("ee19147e85b07e448be482f7e7f946c6ac8692ba942891b9b6120d7d2aee1a98")
-    //         .unwrap();
-    // let signed_tx = web3
-    //     .accounts()
-    //     .sign_transaction(tx_object, &spender_sk)
-    //     .await
-    //     .unwrap();
-
-    // let result = web3
-    //     .eth()
-    //     .send_raw_transaction(signed_tx.raw_transaction)
-    //     .await
-    //     .unwrap_or_else(|e| {
-    //         panic!("Failed to send transaction: {:?}", e);
-    //     });
-
-    // println!("Proof verified. Transaction hash: {:?}", result);
-    /*
-     * SEND TO SERVER FOR VERIFICATION
-     * The server will verify the proof, recover the signer's public key using the signature
-     *
-     * TODO: then request the ioID contract to recover the device's owner, to send him the reward
-     */
-
-    // let body = SendDataBody {
-    //     snark: compressed_snark,
-    //     signature: signature,
-    // };
-
-    // println!("Sending proof and signature to server...");
-    // let client = reqwest::Client::new();
-    // let url = "http://127.0.0.1:3000/send_data";
-    // let response = client
-    //     .post(url)
-    //     .header("Content-Type", "application/json")
-    //     .body(serde_json::to_string(&body).expect("JSON serialization"))
-    //     .send()
-    //     .await?;
-
-    // let result: SendDataResult = response.json().await?;
-    // println!("Result: {}", result.message);
     Ok(())
 }
