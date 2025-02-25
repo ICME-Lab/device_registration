@@ -15,6 +15,8 @@ docker run -it --rm --name ioid-sdk -p 8000:8000 -v $(pwd):/workspace  -w /works
 
 Then run the exectutable `./DeviceRegister`.
 
+Make sure to register your device on IoTeX testnet [here](https://hub.iotex.io/dev/pebble).
+
 ### Generate the solidity contract for the onchain verifier
 
 ```
@@ -84,7 +86,12 @@ const REWARD_DISTRIBUTOR_CONTRACT_ADDRESS = "0xAD5f0101B94F581979AA22F123b7efd95
 cargo run
 ```
 
-This will print the transaction information of the rewards contract. You can check the transaction on IoTeX explorer.
+This will:
+- generate a local proof of location
+- compress the proof (locally but can be done with NovaNet)
+- sign the compressed proof with the device's private key
+- verify the proof onchain and reward the owner of the device
+- print the transaction information of the rewards contract. You can check the transaction on IoTeX explorer.
 https://testnet.iotexscan.io/
 
 
