@@ -29,10 +29,11 @@ pub fn generate_solidity_verifier(
     let mut evm = Evm::default();
 
     let verifier_address = evm.create(nova_cyclefold_verifier_bytecode);
-    println!("verifier_address: {:?}", verifier_address);
-    let (gas, output) = evm.call(verifier_address, calldata.clone());
-    println!("Solidity::verify: {:?}, gas: {:?}", output, gas);
+    // println!("verifier_address: {:?}", verifier_address);
+    let (_gas, output) = evm.call(verifier_address, calldata.clone());
+    // println!("Solidity::verify: {:?}, gas: {:?}", output, gas);
     assert_eq!(*output.last().unwrap(), 1);
+    println!("Onchain verification successful");
 
     // save smart contract and the calldata
     // println!("storing OnchainVerifier.sol and the calldata into files");

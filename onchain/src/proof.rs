@@ -19,11 +19,7 @@ type S2 = nova::spartan::snark::RelaxedR1CSSNARK<E2, EE2>; // non-preprocessing 
 pub fn generate_rs_proof(
     circuit: ProximityCircuit<<E1 as Engine>::Scalar>,
 ) -> (RecursiveSNARK<E1>, PublicParams<E1>) {
-    println!("Producing public parameters...");
-    // produce public parameters
-    let start = Instant::now();
     let rs_pp = PublicParams::<E1>::setup(&circuit.clone(), &*S1::ck_floor(), &*S2::ck_floor());
-    println!("Public parameters setup took: {:?}", start.elapsed());
 
     let num_steps = 3;
     let z0 = [<E1 as Engine>::Scalar::ZERO];
@@ -55,7 +51,7 @@ pub fn generate_rs_proof(
 }
 
 /// Produce the prover and verifier keys for compressed snark
-pub fn setup_decider(rs_pp: PublicParams<E1>, rng: &mut ThreadRng) -> DeciderVerifierKey {
+pub fn setup_decider(_rs_pp: PublicParams<E1>, _rng: &mut ThreadRng) -> DeciderVerifierKey {
     // let start = Instant::now();
     // let (_, decider_vk) = Decider::setup(&rs_pp, rng, 1).unwrap();
     // println!("Decider setup took: {:?}", start.elapsed());
@@ -66,11 +62,7 @@ pub fn setup_decider(rs_pp: PublicParams<E1>, rng: &mut ThreadRng) -> DeciderVer
     decider_vk
 }
 
-pub fn generate_decider_proof(
-    rs: RecursiveSNARK<E1>,
-    rs_pp: PublicParams<E1>,
-    rng: &mut ThreadRng,
-) -> Decider {
+pub fn generate_decider_proof(_rs: RecursiveSNARK<E1>, _rs_pp: PublicParams<E1>, _rng: &mut ThreadRng) -> Decider {
     // produce a compressed SNARK
     // let start = Instant::now();
     // let res = Decider::prove(&rs_pp, &decider_pk, &rs, &mut rng);

@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/Users/albertocentelles/Dropbox/cryptography/device_registration/onchain/hardhat/contracts/DemoOnchainRewards.sol": {
-      "lastModificationDate": 1740428151137,
-      "contentHash": "4786c589c6ba5c96bcd1d2854fd5a8f7",
+      "lastModificationDate": 1740437766835,
+      "contentHash": "922e081ccd4d00f2bb47e2f1f114f33e",
       "sourceName": "contracts/DemoOnchainRewards.sol",
       "solcConfig": {
         "version": "0.8.28",
