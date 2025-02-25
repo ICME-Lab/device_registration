@@ -117,8 +117,8 @@ pub async fn run_onchain_reward(
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+
+async fn generate_onchain_verifier_contract() -> Result<(Vec<u8>, [u8; 32], utils::Signature)> {
     let latitude = 4990;
     let longitude = 5010;
 
@@ -148,6 +148,12 @@ async fn main() -> Result<()> {
     // Generate solidity verifier and calldata
     // ------------------------------------------------------------
     let calldata = generate_solidity_verifier(&compressed_snark, &decider_vk);
+    Ok((calldata, hash, signature))
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let (calldata, hash, signature) = generate_onchain_verifier_contract().await?;
     // ------------------------------------------------------------
     // Prepare calldata for iotex
     // ------------------------------------------------------------
