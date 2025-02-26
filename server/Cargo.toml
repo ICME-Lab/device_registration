@@ -5,16 +5,18 @@ edition = "2021"
 default-run = "server"
 
 [dependencies]
-axum = "0.8.1"
+axum = "0.7.7"
 ff = "0.13.0"
 hex = "0.4.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.128"
 sha2 = "0.10.8"
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
-radius-circuit = { git = "https://github.com/ICME-Lab/radius-circuit.git", branch = "feat/onchain-verifier" }
-nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "feat/onchain-verifier", package = "arecibo" }
+radius-circuit = { git = "https://github.com/AntoineF4C5/radius-circuit.git" }
+nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "feat/nebula", package = "arecibo" }
 web3 = "0.19.0"
 dotenv = "0.14.1"
-halo2curves = { git = "https://github.com/ICME-Lab/halo2curves", branch = "main", features = ["bits", "derive_serde"] }
-rand = "0.8.5"
+
+# Dependency from `nova` crate, but doesn't build with latest version,
+# so we need to pin it to a specific version.
+sppark = "=0.1.10"

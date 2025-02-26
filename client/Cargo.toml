@@ -13,7 +13,9 @@ serde_json = "1.0.128"
 sha2 = "0.10.8"
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
 anyhow = "1.0.89"
-radius-circuit = { git = "https://github.com/ICME-Lab/radius-circuit.git", branch = "feat/onchain-verifier" }
-nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "feat/onchain-verifier", package = "arecibo" }
-rand = "0.8.5"
-halo2curves = { git = "https://github.com/ICME-Lab/halo2curves", branch = "main", features = ["bits", "derive_serde"] }
+radius-circuit = { git = "https://github.com/AntoineF4C5/radius-circuit.git" }
+nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "feat/nebula", package = "arecibo" }
+
+# Dependency from `nova` crate, but doesn't build with latest version,
+# so we need to pin it to a specific version.
+sppark = "=0.1.10"

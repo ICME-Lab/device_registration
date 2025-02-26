@@ -5,24 +5,16 @@ use axum::{
     Json, Router,
 };
 use dotenv::dotenv;
-use ff::Field;
-use halo2curves::bn256::Fr;
-use nova::{
-    nebula::rs::PublicParams,
-    onchain::{
-        decider::{prepare_calldata, Decider},
-        eth::evm::{compile_solidity, Evm},
-        utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier},
-        verifiers::{
-            groth16::SolidityGroth16VerifierKey,
-            kzg::SolidityKZGVerifierKey,
-            nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey},
-        },
-    },
-    provider::Bn256EngineKZG,
-};
-use rand::thread_rng;
 use serde::{Deserialize, Serialize};
+
+use ff::Field;
+use nova::{
+    provider::{self, PallasEngine, VestaEngine},
+    spartan,
+    traits::{CurveCycleEquipped, Engine},
+    CompressedSNARK, PublicParams,
+};
+
 use sha2::Digest;
 use web3::{
     api::Namespace,
@@ -30,7 +22,15 @@ use web3::{
     signing::SecretKey,
     types::{Address, Recovery, RecoveryMessage, TransactionParameters, H160, H256, U256},
 };
-use std::time::Instant;
+
+type E1 = PallasEngine;
+type E2 = VestaEngine;
+
+type EE1<G1> = provider::ipa_pc::EvaluationEngine<G1>;
+type EE2<G2> = provider::ipa_pc::EvaluationEngine<G2>;
+
+type S1Prime<G1> = spartan::ppsnark::RelaxedR1CSSNARK<G1, EE1<G1>>;
+type S2Prime<G2> = spartan::ppsnark::RelaxedR1CSSNARK<G2, EE2<G2>>;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Position {
@@ -40,7 +40,11 @@ struct Position {
 
 #[derive(Deserialize)]
 struct SendDataBody {
-    snark: Decider,
+    snark: CompressedSNARK<
+        provider::PallasEngine,
+        S1Prime<PallasEngine>,
+        S2Prime<<PallasEngine as CurveCycleEquipped>::Secondary>,
+    >,
     signature: Signature,
 }
 
@@ -80,6 +84,7 @@ async fn root() -> String {
 }
 
 async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
+    let num_steps = 1;
     println!("Received data");
 
     let compressed_snark = body.snark;
@@ -101,23 +106,24 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     RECOVER VERIFIER KEY
      */
 
-    let (_pk, vk) = {
-        let pp = get_pp();
-        let mut rng = thread_rng();
-        let z0 = vec![Fr::ONE];
-        let (pk, vk) = Decider::setup(&pp, &mut rng, z0.len()).unwrap();
-        (pk, vk)
-    };
+    let pp = get_pp();
+    let (_pk, vk) =
+        CompressedSNARK::<PallasEngine, S1Prime<PallasEngine>, S2Prime<VestaEngine>>::setup(&pp)
+            .unwrap();
 
     /*
      * VERIFY PROOF
      */
 
-    let start = Instant::now();
     println!("Verifying proof...");
 
     // verify the compressed SNARK
-    let res = compressed_snark.verify(vk.clone());
+    let res = compressed_snark.verify(
+        &vk,
+        num_steps,
+        &[<E1 as Engine>::Scalar::ZERO],
+        &[<E2 as Engine>::Scalar::ONE],
+    );
 
     if res.is_err() {
         println!("Proof verification failed");
@@ -126,43 +132,6 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         });
     }
 
-    {
-    // Now, let's generate the Solidity code that verifies this Decider final proof
-    let function_selector =
-        get_function_selector_for_nova_cyclefold_verifier(compressed_snark.z_0.len() * 2 + 1);
-
-    let calldata: Vec<u8> = prepare_calldata(function_selector, &compressed_snark).unwrap();
-
-    // prepare the setup params for the solidity verifier
-    let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((
-        vk.pp_hash,
-        SolidityGroth16VerifierKey::from(vk.groth16_vk.clone()),
-        SolidityKZGVerifierKey::from((vk.kzg_vk.clone(), Vec::new())),
-        compressed_snark.z_0.len(),
-    ));
-
-    // generate the solidity code
-    let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
-
-    // verify the proof against the solidity code in the EVM
-    let nova_cyclefold_verifier_bytecode = compile_solidity(&decider_solidity_code, "NovaDecider");
-    let mut evm = Evm::default();
-
-    let verifier_address = evm.create(nova_cyclefold_verifier_bytecode);
-    println!("verifier_address: {:?}", verifier_address);
-    let (gas, output) = evm.call(verifier_address, calldata.clone());
-    println!("Solidity::verify: {:?}, gas: {:?}", output, gas);
-    assert_eq!(*output.last().unwrap(), 1);
-
-    // save smart contract and the calldata
-    println!("storing nova-verifier.sol and the calldata into files");
-    use std::fs;
-    fs::write("./nova-verifier.sol", decider_solidity_code.clone())
-        .expect("Unable to write to file");
-    fs::write("./solidity-calldata.calldata", calldata.clone()).expect("");
-    let s = get_formatted_calldata(calldata.clone());
-    fs::write("./solidity-calldata.inputs", s.join(",\n")).expect("");
-    }
     /*
      * Recover owner's public address from device's
      *
@@ -191,10 +160,16 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
     )
     .unwrap();
 
-    let device_id: U256 = ioid_registry_contract
+    let device_id: U256 = match ioid_registry_contract
         .query("deviceTokenId", public_key, None, Options::default(), None)
         .await
-        .unwrap();
+    {
+        Ok(device_id) => device_id,
+        Err(e) => panic!(
+            "Failed to query deviceTokenId: {:?}\nDevice might not be registered",
+            e
+        ),
+    };
 
     let ioid_contract = Contract::from_json(
         web3.eth(),
@@ -207,6 +182,7 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         .query("ownerOf", device_id, None, Options::default(), None)
         .await
         .unwrap();
+
     println!("Proof verified. Sending reward to {:?}", owner_address);
     /*
      * Send reward to device's owner
@@ -233,19 +209,19 @@ async fn receive_data(Json(body): Json<SendDataBody>) -> Json<SendDataResult> {
         });
 
     println!("Proof verified. Transaction hash: {:?}", result);
-    Json(SendDataResult {
+    return Json(SendDataResult {
         message: format!(
             "Proof verified.\nReward sent to {:?}\nTransaction hash: {:?}",
             owner_address, result
         ),
-    })
+    });
 }
 
-fn get_pp() -> PublicParams<Bn256EngineKZG> {
+fn get_pp() -> PublicParams<PallasEngine> {
     let pp_str = std::fs::read_to_string("storage/pp.json").unwrap_or_else(|_| {
         panic!("Could not read public parameters file");
     });
-    let pp: PublicParams<Bn256EngineKZG> = serde_json::from_str(&pp_str).unwrap();
+    let pp: PublicParams<PallasEngine> = serde_json::from_str(&pp_str).unwrap();
     pp
 }
 
