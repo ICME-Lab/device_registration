@@ -1,5 +1,7 @@
 .vscode/
 client/target/
 server/target/
+onchain/target/
 server/storage
 server/.env
+node_modules
