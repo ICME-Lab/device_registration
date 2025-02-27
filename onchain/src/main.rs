@@ -137,8 +137,8 @@ async fn generate_onchain_verifier_contract() -> Result<(Vec<u8>, [u8; 32], util
     // Compress zkSNARK
     // ------------------------------------------------------------
     let mut rng = thread_rng();
-    let decider_vk = setup_decider(rs_pp.clone(), &mut rng);
-    let compressed_snark = generate_decider_proof(rs, rs_pp, &mut rng);
+    let (decider_pk, decider_vk) = setup_decider(rs_pp.clone(), &mut rng);
+    let compressed_snark = generate_decider_proof(rs, rs_pp, decider_pk, &mut rng);
     // ------------------------------------------------------------
     // Sign proof with device
     // ------------------------------------------------------------

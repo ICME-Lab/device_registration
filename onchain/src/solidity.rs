@@ -1,11 +1,11 @@
 use std::env;
 
-use nova::onchain::{decider::{prepare_calldata, Decider, DeciderVerifierKey}, eth::evm::{compile_solidity, Evm}, utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier}, verifiers::{groth16::SolidityGroth16VerifierKey, kzg::SolidityKZGVerifierKey, nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey}}};
+use nova::onchain::{compressed::{prepare_calldata, CompressedSNARK, CompressedVK}, eth::evm::{compile_solidity, Evm}, utils::{get_formatted_calldata, get_function_selector_for_nova_cyclefold_verifier}, verifiers::{groth16::SolidityGroth16VerifierKey, kzg::SolidityKZGVerifierKey, nebula::{get_decider_template_for_cyclefold_decider, NovaCycleFoldVerifierKey}}};
 
 
 pub fn generate_solidity_verifier(
-    compressed_snark: &Decider,
-    decider_vk: &DeciderVerifierKey,
+    compressed_snark: &CompressedSNARK,
+    compressed_vk: &CompressedVK,
 ) -> Vec<u8> {
     // Now, let's generate the Solidity code that verifies this Decider final proof
     let function_selector =
@@ -15,9 +15,9 @@ pub fn generate_solidity_verifier(
 
     // prepare the setup params for the solidity verifier
     let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((
-        decider_vk.pp_hash,
-        SolidityGroth16VerifierKey::from(decider_vk.groth16_vk.clone()),
-        SolidityKZGVerifierKey::from((decider_vk.kzg_vk.clone(), Vec::new())),
+        compressed_vk.pp_hash,
+        SolidityGroth16VerifierKey::from(compressed_vk.groth16_vk.clone()),
+        SolidityKZGVerifierKey::from((compressed_vk.kzg_vk.clone(), Vec::new())),
         compressed_snark.z_0.len(),
     ));
 
