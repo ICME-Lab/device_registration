@@ -1,3 +1,6 @@
 [submodule "client/lib/ioid-registration-js"]
 	path = client/lib/ioid-registration-js
 	url = https://github.com/AntoineF4C5/ioid-registration-js
+[submodule "lib/ioid-registration-js"]
+	path = lib/ioid-registration-js
+	url = https://github.com/AntoineF4C5/ioid-registration-js
