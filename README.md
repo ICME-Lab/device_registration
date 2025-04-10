@@ -1,122 +1,98 @@
-# DePIN Device Registration Using IoTeX ioConnect SDK and NovaNet ZKPs
+# Onchain Verification and Rewards demo
 
-This project demonstrates DePIN device registration using a secure client-server system built with Rust. It leverages IoTeX's ioID SDK for decentralized identity (DID) management and NovaNet's zkEngine for zero-knowledge proof generation.
-The client collects GPS coordinates, and signs them using cryptographic keys. The data is then transmitted with a zero-knowledge proof to the server for trustless verification.
+This demo shows how an ioTex device creates a local zero-knowledge proof of its location, which is verified on the iotex chain and, if successfully verified, then the owner of the device receives a reward.
 
-## Overview
+### Register a device and run it
 
-This system ensures:
+This is necessary to sign the proof with the device's private key.
 
-- Data authenticity through ECDSA signatures managed with the ioID SDK.
-- Privacy-preserving data integrity and computational correctness using zk-SNARKs from NovaNet’s zkEngine.
-- Decentralized Identity Management for DePIN devices via DIDs and DID Documents (DIDDocs) using the ioID SDK.
+Follow https://github.com/iotexproject/ioID-SDK/tree/main/example/linux/deviceregister/doc
 
-# Prerequisites
-
-First install submodules:
-
+If on a Mac, you can run first a docker container with an open port on 8000:
 ```
-git submodule init
-git submodule update
+docker run -it --rm --name ioid-sdk -p 8000:8000 -v $(pwd):/workspace  -w /workspace node:20 bash
 ```
 
-We will simulate a device on our linux machine, and make it run the ioID SDK:
+Then run the exectutable `./DeviceRegister`.
+
+Make sure to register your device on IoTeX testnet [here](https://hub.iotex.io/dev/pebble).
+
+### Generate the solidity contract for the onchain verifier
 
 ```
-git clone https://github.com/iotexproject/ioID-SDK
+cargo run generate-onchain-verifier-contract
 ```
 
-Then allow the device to use ioID capabilities, by following [this tutorial](https://github.com/iotexproject/ioID-SDK/tree/main/example/linux/deviceregister/doc).
-The device (our linux machine) should be listening at port `8000`
+This will generate the solidity contract and the calldata for the onchain verifier in `./hardhat/contracts/`.
 
-To create a project on the IoTeX chain, and allow a device to be registered to it, follow [this tutorial](https://docs.iotex.io/builders/depin/ioid-step-by-step-tutorial).
 
-Once this is done, go to the ioID registration tool and install packages:
+#### Deploy the onchain verifier contract to IoTeX
 
 ```
-cd client/lib/ioid-registration-js
-npm install
+cd hardhat
 ```
 
-From there, follow the steps in the README except you don't have to go to the tutorial that is linked, as we already installed the ioID SDK.
-
-We also need to set `.env` in `/server`:
-
 ```
-IOTEX_TESTNET_RPC_URL=<your rpc url>
-SPENDER_PRIVATE_KEY=<private key for the account that will send rewards - in hex format>
+npx hardhat run scripts/deploy-onchain-verifier.js --network iotex_testnet
 ```
 
-# How it works
+This will return the hash of the deployed contract.
 
-## Client Side:
+### Deploy the rewards contract to IoTeX
 
-The client can then send a proof that it's located in a certain radius from a point (both defined in the circuit, i.e. by the service owning the server)
+1. Modify `./scripts/deploy-rewards-demo.js` and replace the `OnchainVerifier` address with the hash of the deployed contract.
 
-- The client collects GPS data.
-- The client then generates a zk-SNARK proof of proximity.
-- The client sends the proof to the device, so that it signs it with its DID key.
-- The proof, together with the signature, is sent to the server.
-
-## Server Side:
-
-At the beginning of the service, the server creates the verifier key that will allow it to verify proofs sent by clients, stored in `vk.json`.
-
-Then on receiving clients proofs, the server processes the following steps:
-
-- It recovers the signers public address (i.e. device's public address).
-- It verifies that the device is registered by requesting the ioid contract.
-- It then verifies that the proof is valid and corresponds to a correct execution of the circuit.
-- If verification succeeds, the server sends a success response. Otherwise, it returns an error.
-- The server also retrieves the device owner's address to send a reward.
-
-# Project structure
-
-- `/client` where all the client actions are developped, it is composed of:
-  - `/src` where the different executables are located
-- `/server` where the server is setup, composed of:
-  - `/src` where the executable is located
-    - `bin` where the executable to build the verifier key is located
-    - `main.rs` where the executable to run the server is located
-
-# Get started
-
-Make sure the device is still listening on `http://127.0.0.1:8000`
-
-## Starting the server
-
-From `server` directory:
-
-First build the verifier key corresponding to the circuit that we want to verify correct execution:
-
+```javascript
+const contract = await RewardDistributor.deploy(
+    "0xAD5f0101B94F581979AA22F123b7efd9501BfeB3", // OnchainVerifier contract
+    "0x0A7e595C7889dF3652A19aF52C18377bF17e027D", // ioID Registry
+    "0x45Ce3E6f526e597628c73B731a3e9Af7Fc32f5b7"  // ioID Contract
+);
 ```
 
-cargo run --bin build_pp
+2. Deploy the rewards contract
 
 ```
-
-Once the verifier key has been built, we can run the server:
-
+npx hardhat run scripts/deploy-rewards-demo.js --network iotex_testnet
 ```
 
+This will return the hash of the deployed contract.
+
+#### Transfer IOTX to the rewards contract
+
+This is necessary since it is the rewards contract that will pay the reward.
+
+```
+ioctl contract invoke bytecode 0x389daDF8A8A9C800B2d6212A28283f58FF1D43fB "" 2
+```
+
+
+### Run the demo and reward the owner of the device onchain
+
+```
+cd ..
+```
+
+1. Change the addresses of the deployed contracts in `./src/constants.rs`.
+
+```rust
+const NOVA_DECIDER_CONTRACT_ADDRESS = "0xAD5f0101B94F581979AA22F123b7efd9501BfeB3";
+const REWARD_DISTRIBUTOR_CONTRACT_ADDRESS = "0xAD5f0101B94F581979AA22F123b7efd9501BfeB3";
+```
+
+2. Run the demo
+
+```
 cargo run
-
 ```
 
-The server will start listening on `127.0.0.1:3000`
+This will:
+- generate a local proof of location
+- compress the proof (locally but can be done with NovaNet)
+- sign the compressed proof with the device's private key
+- verify the proof onchain and reward the owner of the device
+- print the transaction information of the rewards contract. You can check the transaction on IoTeX explorer.
+https://testnet.iotexscan.io/
 
-## Running the client's functions
 
-From `client` directory, on another terminal:
 
-Once that is done, we can start sending position data to the server:
-
-```
-
-cargo run
-
-```
-
-```
-
-```
